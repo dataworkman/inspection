@@ -12,6 +12,7 @@ class InspectionState extends ChangeNotifier {
   final LocalDraftStorage drafts;
 
   List<dynamic> stores = [];
+  List<dynamic> templates = [];
   List<dynamic> history = [];
   Map<String, dynamic>? dashboard;
   Map<String, dynamic>? activeInspection;
@@ -21,8 +22,18 @@ class InspectionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> startInspection(int storeId) async {
-    final payload = await apiClient.post('/stores/$storeId/inspections', {});
+  Future<void> loadTemplates() async {
+    templates = (await apiClient.get('/inspection_templates'))['inspection_templates'] as List<dynamic>;
+    notifyListeners();
+  }
+
+  Future<void> startInspection(int storeId, int templateId) async {
+    final payload = await apiClient.post('/inspections', {
+      'inspection': {
+        'store_id': storeId,
+        'inspection_template_id': templateId,
+      },
+    });
     activeInspection = payload['inspection'] as Map<String, dynamic>;
     await drafts.saveDraft(activeInspection!['id'] as int, activeInspection!);
     notifyListeners();
@@ -30,8 +41,8 @@ class InspectionState extends ChangeNotifier {
 
   Future<void> updateResponse(int responseId, {required int score, required bool passed, String? comment}) async {
     final inspectionId = activeInspection!['id'] as int;
-    await apiClient.patch('/inspections/$inspectionId/responses/$responseId', {
-      'response': {'score': score, 'passed': passed, 'comment': comment},
+    await apiClient.patch('/inspection_responses/$responseId', {
+      'response': {'score': score, 'not_applicable': false, 'passed': passed, 'comment': comment},
     });
     await reloadInspection(inspectionId);
   }
@@ -44,9 +55,8 @@ class InspectionState extends ChangeNotifier {
   }) async {
     final inspectionId = activeInspection!['id'] as int;
     await apiClient.uploadPhoto(
-      inspectionId: inspectionId,
       file: file,
-      responseId: responseId,
+      responseId: responseId!,
       annotationJson: annotationJson,
       comment: comment,
     );
@@ -56,7 +66,7 @@ class InspectionState extends ChangeNotifier {
   Future<void> updateComment(String comment) async {
     final inspectionId = activeInspection!['id'] as int;
     final payload = await apiClient.patch('/inspections/$inspectionId', {
-      'inspection': {'comment': comment},
+      'inspection': {'general_comment': comment, 'comment': comment},
     });
     activeInspection = payload['inspection'] as Map<String, dynamic>;
     await drafts.saveDraft(inspectionId, activeInspection!);

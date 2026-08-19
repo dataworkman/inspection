@@ -33,18 +33,17 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> uploadPhoto({
-    required int inspectionId,
     required File file,
-    int? responseId,
+    required int responseId,
     String? annotationJson,
     String? comment,
   }) async {
-    final request = http.MultipartRequest('POST', _uri('/inspections/$inspectionId/photos'));
+    final request = http.MultipartRequest('POST', _uri('/inspection_responses/$responseId/photos'));
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
     request.fields['photo[comment]'] = comment ?? '';
-    request.fields['photo[annotation_json]'] = annotationJson ?? '{}';
-    if (responseId != null) request.fields['photo[inspection_response_id]'] = responseId.toString();
-    request.files.add(await http.MultipartFile.fromPath('photo[image]', file.path));
+    request.fields['photo[annotation_data]'] = annotationJson ?? '{}';
+    request.files.add(await http.MultipartFile.fromPath('photo[original_image]', file.path));
+    request.files.add(await http.MultipartFile.fromPath('photo[annotated_image]', file.path));
 
     final response = await http.Response.fromStream(await request.send());
     return _decode(response);

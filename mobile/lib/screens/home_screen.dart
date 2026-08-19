@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final inspections = context.read<InspectionState>();
       inspections.loadStores();
+      inspections.loadTemplates();
       inspections.loadHistory();
       if (context.read<AuthState>().isAdmin) inspections.loadDashboard();
     });
@@ -66,12 +67,14 @@ class StoreListView extends StatelessWidget {
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final store = inspections.stores[index] as Map<String, dynamic>;
+        final template = inspections.templates.isEmpty ? null : inspections.templates.first as Map<String, dynamic>;
         return ListTile(
           title: Text(store['name'] as String),
-          subtitle: Text('${store['code']} - ${store['address']}'),
+          subtitle: Text('${store['store_code']} - ${store['address']}'),
           trailing: const Icon(Icons.chevron_right),
+          enabled: template != null,
           onTap: () async {
-            await inspections.startInspection(store['id'] as int);
+            await inspections.startInspection(store['id'] as int, template!['id'] as int);
             if (context.mounted) {
               await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InspectionScreen()));
             }
