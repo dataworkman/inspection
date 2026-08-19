@@ -86,13 +86,15 @@ class ResponseTile extends StatefulWidget {
 class _ResponseTileState extends State<ResponseTile> {
   late double _score;
   late bool _passed;
+  late bool _notApplicable;
   final _comment = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _score = ((widget.response['score'] as num?) ?? 0).toDouble();
+    _score = ((widget.response['score'] as num?) ?? 1).toDouble().clamp(1, 5);
     _passed = widget.response['passed'] == true;
+    _notApplicable = widget.response['not_applicable'] == true;
     _comment.text = widget.response['comment']?.toString() ?? '';
   }
 
@@ -106,16 +108,25 @@ class _ResponseTileState extends State<ResponseTile> {
           children: [
             Text(widget.response['category'] as String, style: Theme.of(context).textTheme.labelMedium),
             Text(widget.response['title'] as String, style: Theme.of(context).textTheme.titleMedium),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('N/A'),
+              value: _notApplicable,
+              onChanged: (value) {
+                setState(() => _notApplicable = value ?? false);
+                _save(context);
+              },
+            ),
             Row(
               children: [
                 Expanded(
                   child: Slider(
                     value: _score,
-                    min: 0,
-                    max: 100,
-                    divisions: 20,
+                    min: 1,
+                    max: 5,
+                    divisions: 4,
                     label: _score.round().toString(),
-                    onChanged: (value) => setState(() => _score = value),
+                    onChanged: _notApplicable ? null : (value) => setState(() => _score = value),
                     onChangeEnd: (_) => _save(context),
                   ),
                 ),
@@ -146,6 +157,7 @@ class _ResponseTileState extends State<ResponseTile> {
     return context.read<InspectionState>().updateResponse(
           widget.response['id'] as int,
           score: _score.round(),
+          notApplicable: _notApplicable,
           passed: _passed,
           comment: _comment.text,
         );

@@ -39,10 +39,16 @@ class InspectionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateResponse(int responseId, {required int score, required bool passed, String? comment}) async {
+  Future<void> updateResponse(
+    int responseId, {
+    required int score,
+    required bool notApplicable,
+    required bool passed,
+    String? comment,
+  }) async {
     final inspectionId = activeInspection!['id'] as int;
     await apiClient.patch('/inspection_responses/$responseId', {
-      'response': {'score': score, 'not_applicable': false, 'passed': passed, 'comment': comment},
+      'response': {'score': score, 'not_applicable': notApplicable, 'passed': passed, 'comment': comment},
     });
     await reloadInspection(inspectionId);
   }
