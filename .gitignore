@@ -1,0 +1,12 @@
+/backend/.bundle/
+/backend/config/master.key
+/backend/db/*.sqlite3*
+/backend/log/*
+/backend/tmp/*
+/backend/storage/*
+/mobile/.dart_tool/
+/mobile/build/
+/mobile/.flutter-plugins
+/mobile/.flutter-plugins-dependencies
+/mobile/android/local.properties
+*.iml
