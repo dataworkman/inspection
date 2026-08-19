@@ -41,17 +41,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inspections'),
-        actions: [IconButton(onPressed: auth.logout, icon: const Icon(Icons.logout), tooltip: 'Log out')],
+        actions: [
+          IconButton(
+              onPressed: auth.logout,
+              icon: const Icon(Icons.logout),
+              tooltip: 'Log out')
+        ],
       ),
       body: pages[_tab],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) => setState(() => _tab = index),
         destinations: [
-          const NavigationDestination(icon: Icon(Icons.storefront), label: 'Stores'),
-          const NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-          const NavigationDestination(icon: Icon(Icons.task_alt), label: 'Actions'),
-          if (auth.isAdmin) const NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          const NavigationDestination(
+              icon: Icon(Icons.storefront), label: 'Stores'),
+          const NavigationDestination(
+              icon: Icon(Icons.history), label: 'History'),
+          const NavigationDestination(
+              icon: Icon(Icons.task_alt), label: 'Actions'),
+          if (auth.isAdmin)
+            const NavigationDestination(
+                icon: Icon(Icons.dashboard), label: 'Dashboard'),
         ],
       ),
     );
@@ -75,7 +85,8 @@ class ActionsView extends StatelessWidget {
           final store = action['store'] as Map<String, dynamic>;
           return ListTile(
             title: Text(action['title'] as String),
-            subtitle: Text('${store['name']} - ${action['severity']} - ${action['status']}'),
+            subtitle: Text(
+                '${store['name']} - ${action['severity']} - ${action['status']}'),
           );
         },
       ),
@@ -83,8 +94,15 @@ class ActionsView extends StatelessWidget {
   }
 }
 
-class StoreListView extends StatelessWidget {
+class StoreListView extends StatefulWidget {
   const StoreListView({super.key});
+
+  @override
+  State<StoreListView> createState() => _StoreListViewState();
+}
+
+class _StoreListViewState extends State<StoreListView> {
+  int? _startingStoreId;
 
   @override
   Widget build(BuildContext context) {
@@ -95,16 +113,38 @@ class StoreListView extends StatelessWidget {
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final store = inspections.stores[index] as Map<String, dynamic>;
-        final template = inspections.templates.isEmpty ? null : inspections.templates.first as Map<String, dynamic>;
+        final template = inspections.templates.isEmpty
+            ? null
+            : inspections.templates.first as Map<String, dynamic>;
+        final storeId = store['id'] as int;
+        final starting = _startingStoreId == storeId;
         return ListTile(
           title: Text(store['name'] as String),
           subtitle: Text('${store['store_code']} - ${store['address']}'),
-          trailing: const Icon(Icons.chevron_right),
-          enabled: template != null,
+          trailing: starting
+              ? const SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.chevron_right),
+          enabled: template != null && _startingStoreId == null,
           onTap: () async {
-            await inspections.startInspection(store['id'] as int, template!['id'] as int);
-            if (context.mounted) {
-              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InspectionScreen()));
+            setState(() => _startingStoreId = storeId);
+            try {
+              await inspections.startInspection(
+                  storeId, template!['id'] as int);
+              if (context.mounted) {
+                await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const InspectionScreen()));
+              }
+            } catch (error) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not start inspection: $error')),
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _startingStoreId = null);
             }
           },
         );
@@ -144,18 +184,23 @@ class DashboardView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dashboard = context.watch<InspectionState>().dashboard;
-    if (dashboard == null) return const Center(child: CircularProgressIndicator());
+    if (dashboard == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Average score: ${dashboard['average_score'] ?? '-'}', style: Theme.of(context).textTheme.headlineSmall),
+        Text('Average score: ${dashboard['average_score'] ?? '-'}',
+            style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text('Submitted inspections: ${dashboard['submitted_inspections']}'),
         const SizedBox(height: 16),
         for (final row in dashboard['stores'] as List<dynamic>)
           ListTile(
-            title: Text(((row as Map<String, dynamic>)['store'] as Map<String, dynamic>)['name'] as String),
-            subtitle: Text('Avg ${row['average_score'] ?? '-'} across ${row['submitted_inspections']} submitted'),
+            title: Text(((row as Map<String, dynamic>)['store']
+                as Map<String, dynamic>)['name'] as String),
+            subtitle: Text(
+                'Avg ${row['average_score'] ?? '-'} across ${row['submitted_inspections']} submitted'),
           ),
       ],
     );
