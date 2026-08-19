@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
       inspections.loadStores();
       inspections.loadTemplates();
       inspections.loadHistory();
+      inspections.loadActions();
       if (context.read<AuthState>().isAdmin) inspections.loadDashboard();
     });
   }
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = [
       const StoreListView(),
       const HistoryView(),
+      const ActionsView(),
       if (auth.isAdmin) const DashboardView(),
     ];
 
@@ -48,8 +50,34 @@ class _HomeScreenState extends State<HomeScreen> {
         destinations: [
           const NavigationDestination(icon: Icon(Icons.storefront), label: 'Stores'),
           const NavigationDestination(icon: Icon(Icons.history), label: 'History'),
+          const NavigationDestination(icon: Icon(Icons.task_alt), label: 'Actions'),
           if (auth.isAdmin) const NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
         ],
+      ),
+    );
+  }
+}
+
+class ActionsView extends StatelessWidget {
+  const ActionsView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final inspections = context.watch<InspectionState>();
+    return RefreshIndicator(
+      onRefresh: inspections.loadActions,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: inspections.actions.length,
+        separatorBuilder: (context, index) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final action = inspections.actions[index] as Map<String, dynamic>;
+          final store = action['store'] as Map<String, dynamic>;
+          return ListTile(
+            title: Text(action['title'] as String),
+            subtitle: Text('${store['name']} - ${action['severity']} - ${action['status']}'),
+          );
+        },
       ),
     );
   }

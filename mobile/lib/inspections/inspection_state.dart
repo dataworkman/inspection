@@ -14,6 +14,7 @@ class InspectionState extends ChangeNotifier {
   List<dynamic> stores = [];
   List<dynamic> templates = [];
   List<dynamic> history = [];
+  List<dynamic> actions = [];
   Map<String, dynamic>? dashboard;
   Map<String, dynamic>? activeInspection;
 
@@ -105,5 +106,25 @@ class InspectionState extends ChangeNotifier {
   Future<void> loadDashboard() async {
     dashboard = (await apiClient.get('/dashboard'))['dashboard'] as Map<String, dynamic>;
     notifyListeners();
+  }
+
+  Future<void> loadActions() async {
+    actions = (await apiClient.get('/corrective_actions'))['corrective_actions'] as List<dynamic>;
+    notifyListeners();
+  }
+
+  Future<void> createAction(int responseId, String title) async {
+    final inspectionId = activeInspection!['id'] as int;
+    await apiClient.post('/corrective_actions', {
+      'corrective_action': {
+        'inspection_id': inspectionId,
+        'inspection_response_id': responseId,
+        'title': title,
+        'description': title,
+        'severity': 'High',
+        'status': 'Open',
+      },
+    });
+    await loadActions();
   }
 }

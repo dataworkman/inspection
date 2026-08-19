@@ -141,10 +141,23 @@ class _ResponseTileState extends State<ResponseTile> {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: IconButton.filledTonal(
-                onPressed: () => widget.onPhoto(context, widget.response),
-                icon: const Icon(Icons.add_a_photo),
-                tooltip: 'Add photo',
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => widget.onPhoto(context, widget.response),
+                    icon: const Icon(Icons.add_a_photo),
+                    tooltip: 'Add photo',
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: () => context.read<InspectionState>().createAction(
+                          widget.response['id'] as int,
+                          widget.response['title'] as String,
+                        ),
+                    icon: const Icon(Icons.report_problem),
+                    tooltip: 'Add corrective action',
+                  ),
+                ],
               ),
             ),
           ],
