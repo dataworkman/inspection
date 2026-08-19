@@ -4,7 +4,7 @@ module Api
       before_action :set_inspection, only: [ :show, :update, :checklist, :submit ]
 
       def index
-        inspections = visible_inspections.recent.includes(:store, :user, :inspector).limit(50)
+        inspections = visible_inspections.recent.includes(:store, :user, :inspector, :inspection_template).limit(50)
         render json: { inspections: inspections.map(&:as_api_json) }
       end
 
@@ -20,11 +20,13 @@ module Api
           inspection_template: template,
           inspector: current_user,
           user: current_user,
+          score: 0,
+          total_score: 0,
           status: "in_progress",
           started_at: Time.current
         )
         seed_responses_for(inspection)
-        render json: { inspection: inspection.reload.as_api_json(include_detail: true) }, status: :created
+        render json: { inspection: load_inspection_detail(inspection.id).as_api_json(include_detail: true) }, status: :created
       end
 
       def update
@@ -38,7 +40,7 @@ module Api
         template = @inspection.inspection_template
         render json: {
           template: template.as_api_json(include_questions: true),
-          responses: @inspection.inspection_responses.includes(inspection_question: :inspection_category).map(&:as_api_json)
+          responses: @inspection.inspection_responses.includes(:inspection_photos, inspection_question: :inspection_category).map(&:as_api_json)
         }
       end
 
@@ -74,9 +76,28 @@ module Api
       end
 
       def seed_responses_for(inspection)
-        inspection.inspection_template.inspection_questions.find_each do |question|
-          inspection.inspection_responses.find_or_create_by!(inspection_question: question)
+        now = Time.current
+        rows = inspection.inspection_template.inspection_questions.pluck(:id).map do |question_id|
+          {
+            inspection_id: inspection.id,
+            inspection_question_id: question_id,
+            score: 0,
+            not_applicable: false,
+            created_at: now,
+            updated_at: now
+          }
         end
+        InspectionResponse.insert_all!(rows) if rows.any?
+      end
+
+      def load_inspection_detail(id)
+        visible_inspections.includes(
+          :store,
+          :user,
+          :inspector,
+          :inspection_template,
+          inspection_responses: [ :inspection_photos, { inspection_question: :inspection_category } ]
+        ).find(id)
       end
     end
   end
