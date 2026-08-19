@@ -19,8 +19,14 @@ class AuthState extends ChangeNotifier {
     final preferences = await SharedPreferences.getInstance();
     apiClient.token = preferences.getString(_tokenKey);
     if (apiClient.token != null) {
-      final payload = await apiClient.get('/me');
-      user = payload['user'] as Map<String, dynamic>;
+      try {
+        final payload = await apiClient.get('/me');
+        user = payload['user'] as Map<String, dynamic>;
+      } catch (_) {
+        await preferences.remove(_tokenKey);
+        apiClient.token = null;
+        user = null;
+      }
     }
     loading = false;
     notifyListeners();
