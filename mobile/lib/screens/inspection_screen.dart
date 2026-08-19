@@ -186,23 +186,55 @@ class AnnotationScreen extends StatelessWidget {
             ),
           ],
         ),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final imageSize = Size(constraints.maxWidth, constraints.maxHeight);
-            return GestureDetector(
-              onTapUp: (details) => context.read<AnnotationState>().addMark(details.localPosition, imageSize, 'Issue'),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.file(file, fit: BoxFit.contain),
-                  Consumer<AnnotationState>(
-                    builder: (context, annotation, child) => CustomPaint(painter: AnnotationPainter(annotation.marks)),
-                  ),
-                ],
+        body: Column(
+          children: [
+            const AnnotationToolbar(),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final imageSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  return GestureDetector(
+                    onTapUp: (details) => context.read<AnnotationState>().addMark(details.localPosition, imageSize, 'Issue'),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(file, fit: BoxFit.contain),
+                        Consumer<AnnotationState>(
+                          builder: (context, annotation, child) => CustomPaint(painter: AnnotationPainter(annotation.marks)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class AnnotationToolbar extends StatelessWidget {
+  const AnnotationToolbar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final annotation = context.watch<AnnotationState>();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          IconButton(onPressed: () => annotation.setTool(AnnotationTool.pen), icon: const Icon(Icons.draw), tooltip: 'Pen'),
+          IconButton(onPressed: () => annotation.setTool(AnnotationTool.arrow), icon: const Icon(Icons.arrow_outward), tooltip: 'Arrow'),
+          IconButton(onPressed: () => annotation.setTool(AnnotationTool.circle), icon: const Icon(Icons.circle_outlined), tooltip: 'Circle'),
+          IconButton(onPressed: () => annotation.setTool(AnnotationTool.rectangle), icon: const Icon(Icons.crop_square), tooltip: 'Rectangle'),
+          IconButton(onPressed: () => annotation.setTool(AnnotationTool.text), icon: const Icon(Icons.text_fields), tooltip: 'Text'),
+          IconButton(onPressed: annotation.undo, icon: const Icon(Icons.undo), tooltip: 'Undo'),
+          IconButton(onPressed: annotation.redo, icon: const Icon(Icons.redo), tooltip: 'Redo'),
+          IconButton(onPressed: annotation.clear, icon: const Icon(Icons.clear), tooltip: 'Clear'),
+          Slider(value: annotation.strokeWidth, min: 1, max: 8, onChanged: annotation.setStrokeWidth),
+        ],
       ),
     );
   }
@@ -215,15 +247,28 @@ class AnnotationPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.redAccent
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
     for (final mark in marks) {
+      final paint = Paint()
+        ..color = mark.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = mark.strokeWidth;
       final center = Offset(mark.x * size.width, mark.y * size.height);
-      canvas.drawCircle(center, 18, paint);
-      canvas.drawLine(center.translate(-24, 0), center.translate(24, 0), paint);
-      canvas.drawLine(center.translate(0, -24), center.translate(0, 24), paint);
+      switch (mark.tool) {
+        case AnnotationTool.pen:
+          canvas.drawCircle(center, 4, paint..style = PaintingStyle.fill);
+        case AnnotationTool.arrow:
+          canvas.drawLine(center.translate(-26, 20), center.translate(26, -20), paint);
+          canvas.drawLine(center.translate(26, -20), center.translate(6, -18), paint);
+          canvas.drawLine(center.translate(26, -20), center.translate(18, 0), paint);
+        case AnnotationTool.circle:
+          canvas.drawCircle(center, 24, paint);
+        case AnnotationTool.rectangle:
+          canvas.drawRect(Rect.fromCenter(center: center, width: 56, height: 36), paint);
+        case AnnotationTool.text:
+          final painter = TextPainter(text: TextSpan(text: mark.note, style: TextStyle(color: mark.color, fontSize: 18)), textDirection: TextDirection.ltr);
+          painter.layout();
+          painter.paint(canvas, center);
+      }
     }
   }
 
