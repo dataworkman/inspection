@@ -3,12 +3,16 @@ import 'package:provider/provider.dart';
 
 import 'api/api_client.dart';
 import 'auth/auth_state.dart';
+import 'drafts/database_factory_initializer.dart';
 import 'drafts/local_draft_storage.dart';
 import 'inspections/inspection_state.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDatabaseFactory();
+
   const baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://100.107.174.72:3002');
   final apiClient = ApiClient(baseUrl: baseUrl);
 
