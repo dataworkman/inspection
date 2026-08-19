@@ -4,7 +4,7 @@ module Api
       before_action :set_inspection, only: [ :show, :update, :checklist, :submit ]
 
       def index
-        inspections = visible_inspections.recent.includes(:store, :user).limit(50)
+        inspections = visible_inspections.recent.includes(:store, :user, :inspector).limit(50)
         render json: { inspections: inspections.map(&:as_api_json) }
       end
 
@@ -13,7 +13,16 @@ module Api
       end
 
       def create
-        inspection = Store.active.find(params[:store_id]).inspections.create!(user: current_user, status: "draft")
+        store = organization_scope(Store).active.find(params[:store_id] || params.dig(:inspection, :store_id))
+        template = organization_scope(InspectionTemplate).active.find(params.dig(:inspection, :inspection_template_id))
+        inspection = store.inspections.create!(
+          organization: current_user.organization,
+          inspection_template: template,
+          inspector: current_user,
+          user: current_user,
+          status: "in_progress",
+          started_at: Time.current
+        )
         seed_responses_for(inspection)
         render json: { inspection: inspection.reload.as_api_json(include_detail: true) }, status: :created
       end
@@ -26,14 +35,10 @@ module Api
       end
 
       def checklist
-        template = ChecklistTemplate.active.includes(:checklist_items).first
+        template = @inspection.inspection_template
         render json: {
-          checklist: {
-            id: template&.id,
-            title: template&.title,
-            items: template ? template.checklist_items.map(&:as_api_json) : []
-          },
-          responses: @inspection.inspection_responses.includes(:checklist_item).map(&:as_api_json)
+          template: template.as_api_json(include_questions: true),
+          responses: @inspection.inspection_responses.includes(inspection_question: :inspection_category).map(&:as_api_json)
         }
       end
 
@@ -47,7 +52,10 @@ module Api
       private
 
       def visible_inspections
-        current_user.admin? ? Inspection.all : current_user.inspections
+        scope = organization_scope(Inspection)
+        return scope if current_user.admin?
+
+        scope.where(inspector: current_user).or(scope.where(user: current_user))
       end
 
       def set_inspection
@@ -55,22 +63,19 @@ module Api
       end
 
       def inspection_params
-        params.require(:inspection).permit(:comment)
+        params.require(:inspection).permit(:general_comment, :comment, :status)
       end
 
       def ensure_draft!(inspection)
-        return true if inspection.draft?
+        return true if inspection.draft? || inspection.status == "in_progress" || inspection.status == "completed"
 
         render json: { error: "submitted inspections cannot be changed" }, status: :conflict
         false
       end
 
       def seed_responses_for(inspection)
-        template = ChecklistTemplate.active.includes(:checklist_items).first
-        return unless template
-
-        template.checklist_items.find_each do |item|
-          inspection.inspection_responses.find_or_create_by!(checklist_item: item)
+        inspection.inspection_template.inspection_questions.find_each do |question|
+          inspection.inspection_responses.find_or_create_by!(inspection_question: question)
         end
       end
     end

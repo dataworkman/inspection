@@ -15,9 +15,14 @@ class ApplicationController < ActionController::API
   end
 
   def require_admin!
-    return if current_user&.admin?
+    return true if current_user&.admin?
 
     render json: { error: "admin role required" }, status: :forbidden
+    false
+  end
+
+  def organization_scope(model)
+    model.where(organization_id: current_user.organization_id)
   end
 
   def not_found

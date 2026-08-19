@@ -8,17 +8,25 @@ Rails.application.routes.draw do
       get "dashboard", to: "dashboard#show"
 
       resources :stores, only: [ :index, :show ] do
+        member do
+          get :inspection_history
+        end
         resources :inspections, only: [ :create ], shallow: true
       end
+      resources :stores, only: [ :create, :update ]
+      resources :inspection_templates, only: [ :index, :show, :create, :update ]
+      resources :corrective_actions, only: [ :index, :create, :update ]
 
-      resources :inspections, only: [ :index, :show, :update ] do
+      resources :inspections, only: [ :index, :show, :create, :update ] do
         member do
           get :checklist
           post :submit
         end
         resources :responses, only: [ :create, :update ], controller: "inspection_responses"
-        resources :photos, only: [ :create ], controller: "inspection_photos"
       end
+      patch "inspection_responses/:id", to: "inspection_responses#update"
+      post "inspection_responses/:id/photos", to: "inspection_photos#create"
+      delete "inspection_photos/:id", to: "inspection_photos#destroy"
     end
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_19_023911) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -58,8 +58,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_023911) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "corrective_actions", force: :cascade do |t|
+    t.integer "assigned_to_id"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.date "due_date"
+    t.integer "inspection_id", null: false
+    t.integer "inspection_response_id", null: false
+    t.integer "organization_id", null: false
+    t.string "severity", default: "Medium", null: false
+    t.string "status", default: "Open", null: false
+    t.integer "store_id", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index ["assigned_to_id"], name: "index_corrective_actions_on_assigned_to_id"
+    t.index ["inspection_id"], name: "index_corrective_actions_on_inspection_id"
+    t.index ["inspection_response_id"], name: "index_corrective_actions_on_inspection_response_id"
+    t.index ["organization_id"], name: "index_corrective_actions_on_organization_id"
+    t.index ["store_id"], name: "index_corrective_actions_on_store_id"
+  end
+
+  create_table "inspection_categories", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "inspection_template_id", null: false
+    t.string "name", null: false
+    t.integer "position", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.decimal "weight", precision: 6, scale: 2, default: "1.0", null: false
+    t.index ["inspection_template_id"], name: "index_inspection_categories_on_inspection_template_id"
+  end
+
   create_table "inspection_photos", force: :cascade do |t|
-    t.text "annotation_json"
+    t.text "annotation_data"
     t.text "comment"
     t.datetime "created_at", null: false
     t.integer "inspection_id", null: false
@@ -69,28 +100,67 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_023911) do
     t.index ["inspection_response_id"], name: "index_inspection_photos_on_inspection_response_id"
   end
 
+  create_table "inspection_questions", force: :cascade do |t|
+    t.boolean "comment_required", default: false, null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.integer "inspection_category_id", null: false
+    t.integer "max_score", default: 5, null: false
+    t.boolean "photo_required", default: false, null: false
+    t.integer "position", default: 0, null: false
+    t.boolean "required", default: true, null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "weight", precision: 6, scale: 2, default: "1.0", null: false
+    t.index ["inspection_category_id"], name: "index_inspection_questions_on_inspection_category_id"
+  end
+
   create_table "inspection_responses", force: :cascade do |t|
-    t.integer "checklist_item_id", null: false
+    t.integer "checklist_item_id"
     t.text "comment"
     t.datetime "created_at", null: false
     t.integer "inspection_id", null: false
+    t.integer "inspection_question_id"
+    t.boolean "not_applicable", default: false, null: false
     t.boolean "passed"
     t.integer "score", default: 0, null: false
     t.datetime "updated_at", null: false
     t.index ["checklist_item_id"], name: "index_inspection_responses_on_checklist_item_id"
     t.index ["inspection_id", "checklist_item_id"], name: "index_responses_on_inspection_and_item", unique: true
     t.index ["inspection_id"], name: "index_inspection_responses_on_inspection_id"
+    t.index ["inspection_question_id"], name: "index_inspection_responses_on_inspection_question_id"
+  end
+
+  create_table "inspection_templates", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "name", null: false
+    t.integer "organization_id", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version", default: 1, null: false
+    t.index ["organization_id"], name: "index_inspection_templates_on_organization_id"
   end
 
   create_table "inspections", force: :cascade do |t|
     t.text "comment"
+    t.datetime "completed_at"
     t.datetime "created_at", null: false
+    t.text "general_comment"
+    t.integer "inspection_template_id"
+    t.integer "inspector_id"
+    t.integer "organization_id"
     t.decimal "score", precision: 5, scale: 2
+    t.datetime "started_at"
     t.string "status", default: "draft", null: false
     t.integer "store_id", null: false
     t.datetime "submitted_at"
+    t.decimal "total_score", precision: 6, scale: 2
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
+    t.index ["inspection_template_id"], name: "index_inspections_on_inspection_template_id"
+    t.index ["inspector_id"], name: "index_inspections_on_inspector_id"
+    t.index ["organization_id"], name: "index_inspections_on_organization_id"
     t.index ["status"], name: "index_inspections_on_status"
     t.index ["store_id", "created_at"], name: "index_inspections_on_store_id_and_created_at"
     t.index ["store_id"], name: "index_inspections_on_store_id"
@@ -98,35 +168,61 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_023911) do
     t.index ["user_id"], name: "index_inspections_on_user_id"
   end
 
-  create_table "stores", force: :cascade do |t|
-    t.boolean "active", default: true, null: false
-    t.string "address"
-    t.string "code", null: false
+  create_table "organizations", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.datetime "updated_at", null: false
-    t.index ["code"], name: "index_stores_on_code", unique: true
+  end
+
+  create_table "stores", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.string "address"
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.integer "organization_id"
+    t.string "phone"
+    t.string "store_code", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_stores_on_organization_id"
+    t.index ["store_code"], name: "index_stores_on_store_code", unique: true
   end
 
   create_table "users", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
     t.string "api_token"
     t.datetime "created_at", null: false
     t.string "email", null: false
     t.string "name", null: false
+    t.integer "organization_id"
     t.string "password_digest", null: false
     t.string "role", default: "inspector", null: false
     t.datetime "updated_at", null: false
     t.index "lower(email)", name: "index_users_on_lower_email", unique: true
     t.index ["api_token"], name: "index_users_on_api_token", unique: true
+    t.index ["organization_id"], name: "index_users_on_organization_id"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "checklist_items", "checklist_templates"
+  add_foreign_key "corrective_actions", "inspection_responses"
+  add_foreign_key "corrective_actions", "inspections"
+  add_foreign_key "corrective_actions", "organizations"
+  add_foreign_key "corrective_actions", "stores"
+  add_foreign_key "corrective_actions", "users", column: "assigned_to_id"
+  add_foreign_key "inspection_categories", "inspection_templates"
   add_foreign_key "inspection_photos", "inspection_responses"
   add_foreign_key "inspection_photos", "inspections"
+  add_foreign_key "inspection_questions", "inspection_categories"
   add_foreign_key "inspection_responses", "checklist_items"
+  add_foreign_key "inspection_responses", "inspection_questions"
   add_foreign_key "inspection_responses", "inspections"
+  add_foreign_key "inspection_templates", "organizations"
+  add_foreign_key "inspections", "inspection_templates"
+  add_foreign_key "inspections", "organizations"
   add_foreign_key "inspections", "stores"
   add_foreign_key "inspections", "users"
+  add_foreign_key "inspections", "users", column: "inspector_id"
+  add_foreign_key "stores", "organizations"
+  add_foreign_key "users", "organizations"
 end

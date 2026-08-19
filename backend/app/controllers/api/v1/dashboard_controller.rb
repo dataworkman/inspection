@@ -4,14 +4,19 @@ module Api
       before_action :require_admin!
 
       def show
-        inspections = Inspection.submitted.includes(:store)
+        inspections = organization_scope(Inspection).submitted.includes(:store)
+        open_actions = organization_scope(CorrectiveAction).open_status
         render json: {
           dashboard: {
-            total_stores: Store.active.count,
+            total_stores: organization_scope(Store).active.count,
             submitted_inspections: inspections.count,
-            average_score: inspections.average(:score)&.round(2)&.to_f,
+            inspections_this_month: inspections.where("submitted_at >= ?", Time.current.beginning_of_month).count,
+            average_inspection_score: inspections.average(:total_score)&.round(2)&.to_f,
+            stores_below_standard: inspections.where("total_score < ?", 70).select(:store_id).distinct.count,
+            open_corrective_actions: open_actions.count,
+            critical_corrective_actions: open_actions.critical.count,
             recent_inspections: inspections.recent.limit(10).map(&:as_api_json),
-            stores: Store.active.order(:name).map { |store| store_summary(store) }
+            stores: organization_scope(Store).active.order(:name).map { |store| store_summary(store) }
           }
         }
       end

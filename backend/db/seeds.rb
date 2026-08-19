@@ -1,45 +1,105 @@
-User.find_or_create_by!(email: "admin@storepilot.test") do |user|
-  user.name = "Admin User"
+organization = Organization.find_or_create_by!(name: "Demo Bakery Group")
+
+admin = User.find_or_create_by!(email: "admin@bakery-inspection.test") do |user|
+  user.organization = organization
+  user.name = "HQ Admin"
   user.role = "admin"
   user.password = "password123"
 end
 
-User.find_or_create_by!(email: "inspector@storepilot.test") do |user|
-  user.name = "Field Inspector"
+inspector = User.find_or_create_by!(email: "inspector@bakery-inspection.test") do |user|
+  user.organization = organization
+  user.name = "Inspector A"
   user.role = "inspector"
   user.password = "password123"
 end
 
+manager = User.find_or_create_by!(email: "manager@bakery-inspection.test") do |user|
+  user.organization = organization
+  user.name = "Downtown Manager"
+  user.role = "store_manager"
+  user.password = "password123"
+end
+
 [
-  [ "Downtown Market", "DT-001", "101 Main Street" ],
-  [ "Riverside Store", "RV-002", "22 River Road" ],
-  [ "Uptown Express", "UP-003", "88 North Avenue" ]
-].each do |name, code, address|
-  Store.find_or_create_by!(code: code) do |store|
+  [ "Downtown Bakery", "DT-BKY", "101 Main Street", "555-0101" ],
+  [ "Midtown Bakery", "MT-BKY", "22 Center Avenue", "555-0102" ],
+  [ "Airport Bakery", "AP-BKY", "3 Terminal Road", "555-0103" ]
+].each do |name, store_code, address, phone|
+  organization.stores.find_or_create_by!(store_code: store_code) do |store|
     store.name = name
     store.address = address
+    store.phone = phone
     store.active = true
   end
 end
 
-template = ChecklistTemplate.find_or_create_by!(title: "MVP Store Inspection") do |checklist_template|
-  checklist_template.active = true
+template = organization.inspection_templates.find_or_create_by!(name: "Bakery Standard Inspection") do |inspection_template|
+  inspection_template.description = "Bakery Standard Inspection v1"
+  inspection_template.version = 1
+  inspection_template.active = true
 end
 
-[
-  [ "Exterior", "Entrance, signage, and windows are clean", 2 ],
-  [ "Food Safety", "Cold holding temperatures are logged", 4 ],
-  [ "Food Safety", "Open products are labeled and dated", 4 ],
-  [ "Operations", "Checkout area is stocked and clear", 2 ],
-  [ "Operations", "Back room walkways are clear", 2 ],
-  [ "Customer Experience", "Restrooms are clean and supplied", 3 ],
-  [ "Customer Experience", "Promotional displays match current plan", 1 ]
-].each_with_index do |(category, title, weight), index|
-  ChecklistItem.find_or_create_by!(checklist_template: template, title: title) do |item|
-    item.category = category
-    item.weight = weight
-    item.position = index + 1
+category_data = {
+  "Cleanliness" => {
+    weight: 30,
+    questions: [
+      "Floor cleanliness",
+      "Counter cleanliness",
+      "Equipment cleanliness",
+      "Display case cleanliness",
+      "Employee hygiene"
+    ]
+  },
+  "Product Quality" => {
+    weight: 30,
+    questions: [
+      "Bread appearance",
+      "Freshness",
+      "Display quality",
+      "Product availability",
+      "Packaging"
+    ]
+  },
+  "Service" => {
+    weight: 25,
+    questions: [
+      "Customer greeting",
+      "Service speed",
+      "Staff attitude",
+      "Product knowledge",
+      "Line handling"
+    ]
+  },
+  "Facility" => {
+    weight: 15,
+    questions: [
+      "Lighting",
+      "Furniture condition",
+      "Signage",
+      "Restroom",
+      "Safety"
+    ]
+  }
+}
+
+category_data.each_with_index do |(name, data), category_index|
+  category = template.inspection_categories.find_or_create_by!(name: name) do |inspection_category|
+    inspection_category.weight = data[:weight]
+    inspection_category.position = category_index + 1
+  end
+
+  data[:questions].each_with_index do |title, question_index|
+    category.inspection_questions.find_or_create_by!(title: title) do |question|
+      question.description = "#{title} meets Demo Bakery Group standards."
+      question.max_score = 5
+      question.weight = 1
+      question.required = true
+      question.photo_required = question_index.zero?
+      question.comment_required = question_index == 1
+      question.position = question_index + 1
+    end
   end
 end
 
-puts "Seeded #{User.count} users, #{Store.count} stores, and #{ChecklistItem.count} checklist items."
+puts "Seeded #{Organization.count} organization, #{User.count} users, #{Store.count} stores, #{InspectionTemplate.count} templates, #{InspectionQuestion.count} questions."
