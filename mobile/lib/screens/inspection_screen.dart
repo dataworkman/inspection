@@ -342,15 +342,21 @@ class AnnotationScreen extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        FutureBuilder(
+                        FutureBuilder<Uint8List>(
                           future: file.readAsBytes(),
                           builder: (context, snapshot) {
+                            if (snapshot.hasError) {
+                              return _PhotoPreviewError(
+                                  error: snapshot.error ?? 'Unknown error');
+                            }
                             if (!snapshot.hasData) {
                               return const Center(
                                   child: CircularProgressIndicator());
                             }
-                            return Image.memory(snapshot.data!,
-                                fit: BoxFit.contain);
+                            return _PickedPhotoImage(
+                              file: file,
+                              bytes: snapshot.data!,
+                            );
                           },
                         ),
                         Consumer<AnnotationState>(
@@ -418,6 +424,53 @@ class AnnotationToolbar extends StatelessWidget {
               max: 8,
               onChanged: annotation.setStrokeWidth),
         ],
+      ),
+    );
+  }
+}
+
+class _PickedPhotoImage extends StatelessWidget {
+  const _PickedPhotoImage({required this.file, required this.bytes});
+
+  final XFile file;
+  final Uint8List bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Image.memory(
+      bytes,
+      fit: BoxFit.contain,
+      errorBuilder: (_, error, __) => _PhotoPreviewError(error: error),
+    );
+
+    if (!kIsWeb || file.path.isEmpty) return fallback;
+
+    return Image.network(
+      file.path,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => fallback,
+    );
+  }
+}
+
+class _PhotoPreviewError extends StatelessWidget {
+  const _PhotoPreviewError({required this.error});
+
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'Photo preview failed: $error',
+          textAlign: TextAlign.center,
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.error),
+        ),
       ),
     );
   }
