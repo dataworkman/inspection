@@ -1,6 +1,6 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../annotations/annotation_state.dart';
@@ -22,23 +22,31 @@ class _InspectionScreenState extends State<InspectionScreen> {
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
     final inspection = inspections.activeInspection;
-    if (inspection == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (inspection == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     final responses = inspection['responses'] as List<dynamic>;
     return Scaffold(
-      appBar: AppBar(title: Text((inspection['store'] as Map<String, dynamic>)['name'] as String)),
+      appBar: AppBar(
+          title: Text(
+              (inspection['store'] as Map<String, dynamic>)['name'] as String)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Score: ${inspection['score'] ?? 0}', style: Theme.of(context).textTheme.titleLarge),
+          Text('Score: ${inspection['score'] ?? 0}',
+              style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
-          for (final raw in responses) ResponseTile(response: raw as Map<String, dynamic>, onPhoto: _addPhoto),
+          for (final raw in responses)
+            ResponseTile(
+                response: raw as Map<String, dynamic>, onPhoto: _addPhoto),
           const SizedBox(height: 12),
           TextField(
             controller: _comment,
             minLines: 2,
             maxLines: 4,
-            decoration: const InputDecoration(labelText: 'Inspection comment', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+                labelText: 'Inspection comment', border: OutlineInputBorder()),
             onChanged: (value) => inspections.updateComment(value),
           ),
           const SizedBox(height: 16),
@@ -55,29 +63,88 @@ class _InspectionScreenState extends State<InspectionScreen> {
     );
   }
 
-  Future<void> _addPhoto(BuildContext context, Map<String, dynamic> response) async {
-    final file = await _photoPicker.takePhoto() ?? await _photoPicker.choosePhoto();
-    if (file == null || !context.mounted) return;
+  Future<void> _addPhoto(
+      BuildContext context, Map<String, dynamic> response) async {
+    XFile? file;
+    try {
+      file = await _pickPhoto(context);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Photo selection failed: $error')));
+      }
+      return;
+    }
+    final selectedFile = file;
+    if (selectedFile == null || !context.mounted) return;
 
     final annotation = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => AnnotationScreen(file: file)),
+      MaterialPageRoute(builder: (_) => AnnotationScreen(file: selectedFile)),
     );
     if (!context.mounted) return;
 
-    await context.read<InspectionState>().uploadPhoto(
-          file: file,
-          responseId: response['id'] as int,
-          annotationJson: annotation ?? '{}',
-          comment: 'Field photo',
-        );
+    try {
+      await context.read<InspectionState>().uploadPhoto(
+            file: selectedFile,
+            responseId: response['id'] as int,
+            annotationJson: annotation ?? '{}',
+            comment: 'Field photo',
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Photo attached')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Photo upload failed: $error')));
+      }
+    }
+  }
+
+  Future<XFile?> _pickPhoto(BuildContext context) async {
+    if (kIsWeb) {
+      return _photoPicker.choosePhoto();
+    }
+
+    final source = await showModalBottomSheet<_PhotoSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Photo library'),
+              onTap: () => Navigator.of(context).pop(_PhotoSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Camera'),
+              onTap: () => Navigator.of(context).pop(_PhotoSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return switch (source) {
+      _PhotoSource.camera => _photoPicker.takePhoto(),
+      _PhotoSource.gallery => _photoPicker.choosePhoto(),
+      null => null,
+    };
   }
 }
 
+enum _PhotoSource { camera, gallery }
+
 class ResponseTile extends StatefulWidget {
-  const ResponseTile({super.key, required this.response, required this.onPhoto});
+  const ResponseTile(
+      {super.key, required this.response, required this.onPhoto});
 
   final Map<String, dynamic> response;
-  final Future<void> Function(BuildContext context, Map<String, dynamic> response) onPhoto;
+  final Future<void> Function(
+      BuildContext context, Map<String, dynamic> response) onPhoto;
 
   @override
   State<ResponseTile> createState() => _ResponseTileState();
@@ -106,8 +173,10 @@ class _ResponseTileState extends State<ResponseTile> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.response['category'] as String, style: Theme.of(context).textTheme.labelMedium),
-            Text(widget.response['title'] as String, style: Theme.of(context).textTheme.titleMedium),
+            Text(widget.response['category'] as String,
+                style: Theme.of(context).textTheme.labelMedium),
+            Text(widget.response['title'] as String,
+                style: Theme.of(context).textTheme.titleMedium),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('N/A'),
@@ -126,12 +195,16 @@ class _ResponseTileState extends State<ResponseTile> {
                     max: 5,
                     divisions: 4,
                     label: _score.round().toString(),
-                    onChanged: _notApplicable ? null : (value) => setState(() => _score = value),
+                    onChanged: _notApplicable
+                        ? null
+                        : (value) => setState(() => _score = value),
                     onChangeEnd: (_) => _save(context),
                   ),
                 ),
                 Text(_score.round().toString()),
-                Switch(value: _passed, onChanged: (value) => setState(() => _passed = value)),
+                Switch(
+                    value: _passed,
+                    onChanged: (value) => setState(() => _passed = value)),
               ],
             ),
             TextField(
@@ -139,6 +212,10 @@ class _ResponseTileState extends State<ResponseTile> {
               decoration: const InputDecoration(labelText: 'Comment'),
               onSubmitted: (_) => _save(context),
             ),
+            PhotoStrip(
+                photos:
+                    (widget.response['photos'] as List<dynamic>? ?? const [])),
+            const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: Wrap(
@@ -150,10 +227,11 @@ class _ResponseTileState extends State<ResponseTile> {
                     tooltip: 'Add photo',
                   ),
                   IconButton.filledTonal(
-                    onPressed: () => context.read<InspectionState>().createAction(
-                          widget.response['id'] as int,
-                          widget.response['title'] as String,
-                        ),
+                    onPressed: () =>
+                        context.read<InspectionState>().createAction(
+                              widget.response['id'] as int,
+                              widget.response['title'] as String,
+                            ),
                     icon: const Icon(Icons.report_problem),
                     tooltip: 'Add corrective action',
                   ),
@@ -177,10 +255,59 @@ class _ResponseTileState extends State<ResponseTile> {
   }
 }
 
+class PhotoStrip extends StatelessWidget {
+  const PhotoStrip({super.key, required this.photos});
+
+  final List<dynamic> photos;
+
+  @override
+  Widget build(BuildContext context) {
+    if (photos.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: photos.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final photo = photos[index] as Map<String, dynamic>;
+          final imagePath =
+              photo['annotated_image_url'] ?? photo['original_image_url'];
+          if (imagePath == null) return const SizedBox.shrink();
+
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              _absoluteApiUrl(context, imagePath.toString()),
+              width: 72,
+              height: 72,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 72,
+                height: 72,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: const Icon(Icons.broken_image),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _absoluteApiUrl(BuildContext context, String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+    final baseUrl = context.read<InspectionState>().apiClient.baseUrl;
+    return '$baseUrl$path';
+  }
+}
+
 class AnnotationScreen extends StatelessWidget {
   const AnnotationScreen({super.key, required this.file});
 
-  final File file;
+  final XFile file;
 
   @override
   Widget build(BuildContext context) {
@@ -192,7 +319,8 @@ class AnnotationScreen extends StatelessWidget {
           actions: [
             Consumer<AnnotationState>(
               builder: (context, annotation, _) => IconButton(
-                onPressed: () => Navigator.of(context).pop(annotation.toPayload()),
+                onPressed: () =>
+                    Navigator.of(context).pop(annotation.toPayload()),
                 icon: const Icon(Icons.check),
                 tooltip: 'Done',
               ),
@@ -205,15 +333,29 @@ class AnnotationScreen extends StatelessWidget {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final imageSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  final imageSize =
+                      Size(constraints.maxWidth, constraints.maxHeight);
                   return GestureDetector(
-                    onTapUp: (details) => context.read<AnnotationState>().addMark(details.localPosition, imageSize, 'Issue'),
+                    onTapUp: (details) => context
+                        .read<AnnotationState>()
+                        .addMark(details.localPosition, imageSize, 'Issue'),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.file(file, fit: BoxFit.contain),
+                        FutureBuilder(
+                          future: file.readAsBytes(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) {
+                              return const Center(
+                                  child: CircularProgressIndicator());
+                            }
+                            return Image.memory(snapshot.data!,
+                                fit: BoxFit.contain);
+                          },
+                        ),
                         Consumer<AnnotationState>(
-                          builder: (context, annotation, child) => CustomPaint(painter: AnnotationPainter(annotation.marks)),
+                          builder: (context, annotation, child) => CustomPaint(
+                              painter: AnnotationPainter(annotation.marks)),
                         ),
                       ],
                     ),
@@ -238,15 +380,43 @@ class AnnotationToolbar extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          IconButton(onPressed: () => annotation.setTool(AnnotationTool.pen), icon: const Icon(Icons.draw), tooltip: 'Pen'),
-          IconButton(onPressed: () => annotation.setTool(AnnotationTool.arrow), icon: const Icon(Icons.arrow_outward), tooltip: 'Arrow'),
-          IconButton(onPressed: () => annotation.setTool(AnnotationTool.circle), icon: const Icon(Icons.circle_outlined), tooltip: 'Circle'),
-          IconButton(onPressed: () => annotation.setTool(AnnotationTool.rectangle), icon: const Icon(Icons.crop_square), tooltip: 'Rectangle'),
-          IconButton(onPressed: () => annotation.setTool(AnnotationTool.text), icon: const Icon(Icons.text_fields), tooltip: 'Text'),
-          IconButton(onPressed: annotation.undo, icon: const Icon(Icons.undo), tooltip: 'Undo'),
-          IconButton(onPressed: annotation.redo, icon: const Icon(Icons.redo), tooltip: 'Redo'),
-          IconButton(onPressed: annotation.clear, icon: const Icon(Icons.clear), tooltip: 'Clear'),
-          Slider(value: annotation.strokeWidth, min: 1, max: 8, onChanged: annotation.setStrokeWidth),
+          IconButton(
+              onPressed: () => annotation.setTool(AnnotationTool.pen),
+              icon: const Icon(Icons.draw),
+              tooltip: 'Pen'),
+          IconButton(
+              onPressed: () => annotation.setTool(AnnotationTool.arrow),
+              icon: const Icon(Icons.arrow_outward),
+              tooltip: 'Arrow'),
+          IconButton(
+              onPressed: () => annotation.setTool(AnnotationTool.circle),
+              icon: const Icon(Icons.circle_outlined),
+              tooltip: 'Circle'),
+          IconButton(
+              onPressed: () => annotation.setTool(AnnotationTool.rectangle),
+              icon: const Icon(Icons.crop_square),
+              tooltip: 'Rectangle'),
+          IconButton(
+              onPressed: () => annotation.setTool(AnnotationTool.text),
+              icon: const Icon(Icons.text_fields),
+              tooltip: 'Text'),
+          IconButton(
+              onPressed: annotation.undo,
+              icon: const Icon(Icons.undo),
+              tooltip: 'Undo'),
+          IconButton(
+              onPressed: annotation.redo,
+              icon: const Icon(Icons.redo),
+              tooltip: 'Redo'),
+          IconButton(
+              onPressed: annotation.clear,
+              icon: const Icon(Icons.clear),
+              tooltip: 'Clear'),
+          Slider(
+              value: annotation.strokeWidth,
+              min: 1,
+              max: 8,
+              onChanged: annotation.setStrokeWidth),
         ],
       ),
     );
@@ -270,15 +440,23 @@ class AnnotationPainter extends CustomPainter {
         case AnnotationTool.pen:
           canvas.drawCircle(center, 4, paint..style = PaintingStyle.fill);
         case AnnotationTool.arrow:
-          canvas.drawLine(center.translate(-26, 20), center.translate(26, -20), paint);
-          canvas.drawLine(center.translate(26, -20), center.translate(6, -18), paint);
-          canvas.drawLine(center.translate(26, -20), center.translate(18, 0), paint);
+          canvas.drawLine(
+              center.translate(-26, 20), center.translate(26, -20), paint);
+          canvas.drawLine(
+              center.translate(26, -20), center.translate(6, -18), paint);
+          canvas.drawLine(
+              center.translate(26, -20), center.translate(18, 0), paint);
         case AnnotationTool.circle:
           canvas.drawCircle(center, 24, paint);
         case AnnotationTool.rectangle:
-          canvas.drawRect(Rect.fromCenter(center: center, width: 56, height: 36), paint);
+          canvas.drawRect(
+              Rect.fromCenter(center: center, width: 56, height: 36), paint);
         case AnnotationTool.text:
-          final painter = TextPainter(text: TextSpan(text: mark.note, style: TextStyle(color: mark.color, fontSize: 18)), textDirection: TextDirection.ltr);
+          final painter = TextPainter(
+              text: TextSpan(
+                  text: mark.note,
+                  style: TextStyle(color: mark.color, fontSize: 18)),
+              textDirection: TextDirection.ltr);
           painter.layout();
           painter.paint(canvas, center);
       }
@@ -286,5 +464,6 @@ class AnnotationPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant AnnotationPainter oldDelegate) => oldDelegate.marks != marks;
+  bool shouldRepaint(covariant AnnotationPainter oldDelegate) =>
+      oldDelegate.marks != marks;
 }

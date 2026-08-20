@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../api/api_client.dart';
 import '../drafts/local_draft_storage.dart';
@@ -24,7 +23,8 @@ class InspectionState extends ChangeNotifier {
   }
 
   Future<void> loadTemplates() async {
-    templates = (await apiClient.get('/inspection_templates'))['inspection_templates'] as List<dynamic>;
+    templates = (await apiClient
+        .get('/inspection_templates'))['inspection_templates'] as List<dynamic>;
     notifyListeners();
   }
 
@@ -49,13 +49,18 @@ class InspectionState extends ChangeNotifier {
   }) async {
     final inspectionId = activeInspection!['id'] as int;
     await apiClient.patch('/inspection_responses/$responseId', {
-      'response': {'score': score, 'not_applicable': notApplicable, 'passed': passed, 'comment': comment},
+      'response': {
+        'score': score,
+        'not_applicable': notApplicable,
+        'passed': passed,
+        'comment': comment
+      },
     });
     await reloadInspection(inspectionId);
   }
 
   Future<void> uploadPhoto({
-    required File file,
+    required XFile file,
     required int? responseId,
     required String annotationJson,
     String? comment,
@@ -99,17 +104,20 @@ class InspectionState extends ChangeNotifier {
   }
 
   Future<void> loadHistory() async {
-    history = (await apiClient.get('/inspections'))['inspections'] as List<dynamic>;
+    history =
+        (await apiClient.get('/inspections'))['inspections'] as List<dynamic>;
     notifyListeners();
   }
 
   Future<void> loadDashboard() async {
-    dashboard = (await apiClient.get('/dashboard'))['dashboard'] as Map<String, dynamic>;
+    dashboard = (await apiClient.get('/dashboard'))['dashboard']
+        as Map<String, dynamic>;
     notifyListeners();
   }
 
   Future<void> loadActions() async {
-    actions = (await apiClient.get('/corrective_actions'))['corrective_actions'] as List<dynamic>;
+    actions = (await apiClient.get('/corrective_actions'))['corrective_actions']
+        as List<dynamic>;
     notifyListeners();
   }
 
