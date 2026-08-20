@@ -78,19 +78,27 @@ class _InspectionScreenState extends State<InspectionScreen> {
     final selectedFile = file;
     if (selectedFile == null || !context.mounted) return;
 
-    final annotation = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => AnnotationScreen(file: selectedFile)),
-    );
+    String annotation = '{}';
+    if (!kIsWeb) {
+      annotation = await Navigator.of(context).push<String>(
+            MaterialPageRoute(
+                builder: (_) => AnnotationScreen(file: selectedFile)),
+          ) ??
+          '{}';
+    }
     if (!context.mounted) return;
 
     try {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Uploading photo...')));
       await context.read<InspectionState>().uploadPhoto(
             file: selectedFile,
             responseId: response['id'] as int,
-            annotationJson: annotation ?? '{}',
+            annotationJson: annotation,
             comment: 'Field photo',
           );
       if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Photo attached')));
       }
