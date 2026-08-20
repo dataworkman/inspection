@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../annotations/annotation_state.dart';
 import '../inspections/inspection_state.dart';
+import '../photos/photo_input_button.dart';
 import '../photos/photo_picker_service.dart';
 
 class InspectionScreen extends StatefulWidget {
@@ -39,7 +40,10 @@ class _InspectionScreenState extends State<InspectionScreen> {
           const SizedBox(height: 12),
           for (final raw in responses)
             ResponseTile(
-                response: raw as Map<String, dynamic>, onPhoto: _addPhoto),
+              response: raw as Map<String, dynamic>,
+              onPhoto: _addPhoto,
+              onPhotoSelected: _uploadSelectedPhoto,
+            ),
           const SizedBox(height: 12),
           TextField(
             controller: _comment,
@@ -77,6 +81,16 @@ class _InspectionScreenState extends State<InspectionScreen> {
     }
     final selectedFile = file;
     if (selectedFile == null || !context.mounted) return;
+
+    await _uploadSelectedPhoto(context, response, selectedFile);
+  }
+
+  Future<void> _uploadSelectedPhoto(
+    BuildContext context,
+    Map<String, dynamic> response,
+    XFile selectedFile,
+  ) async {
+    if (!context.mounted) return;
 
     String annotation = '{}';
     if (!kIsWeb) {
@@ -148,11 +162,17 @@ enum _PhotoSource { camera, gallery }
 
 class ResponseTile extends StatefulWidget {
   const ResponseTile(
-      {super.key, required this.response, required this.onPhoto});
+      {super.key,
+      required this.response,
+      required this.onPhoto,
+      required this.onPhotoSelected});
 
   final Map<String, dynamic> response;
   final Future<void> Function(
       BuildContext context, Map<String, dynamic> response) onPhoto;
+  final Future<void> Function(
+          BuildContext context, Map<String, dynamic> response, XFile file)
+      onPhotoSelected;
 
   @override
   State<ResponseTile> createState() => _ResponseTileState();
@@ -229,11 +249,18 @@ class _ResponseTileState extends State<ResponseTile> {
               child: Wrap(
                 spacing: 8,
                 children: [
-                  IconButton.filledTonal(
-                    onPressed: () => widget.onPhoto(context, widget.response),
-                    icon: const Icon(Icons.add_a_photo),
-                    tooltip: 'Add photo',
-                  ),
+                  if (kIsWeb)
+                    PhotoInputButton(
+                      tooltip: 'Add photo',
+                      onPhotoPicked: (file) => widget.onPhotoSelected(
+                          context, widget.response, file),
+                    )
+                  else
+                    IconButton.filledTonal(
+                      onPressed: () => widget.onPhoto(context, widget.response),
+                      icon: const Icon(Icons.add_a_photo),
+                      tooltip: 'Add photo',
+                    ),
                   IconButton.filledTonal(
                     onPressed: () =>
                         context.read<InspectionState>().createAction(
