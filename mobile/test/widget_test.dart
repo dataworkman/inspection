@@ -52,10 +52,14 @@ void main() {
       ),
     );
 
-    expect(find.text('Average score: 82.5'), findsOneWidget);
-    expect(find.text('Submitted inspections: 3'), findsOneWidget);
-    expect(find.text('Open actions: 2'), findsOneWidget);
-    expect(find.text('Critical actions: 1'), findsOneWidget);
+    expect(find.text('Average score'), findsOneWidget);
+    expect(find.text('82.5'), findsOneWidget);
+    expect(find.text('Submitted'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(find.text('Open actions'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('Critical'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
     expect(find.text('Airport Bakery'), findsOneWidget);
     expect(find.text('Downtown Bakery'), findsOneWidget);
   });

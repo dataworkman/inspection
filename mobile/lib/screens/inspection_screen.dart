@@ -36,11 +36,10 @@ class _InspectionScreenState extends State<InspectionScreen> {
           title: Text(
               (inspection['store'] as Map<String, dynamic>)['name'] as String)),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         children: [
-          Text('Score: ${inspection['score'] ?? 0}',
-              style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
+          _InspectionHeader(inspection: inspection),
+          const SizedBox(height: 16),
           for (final raw in responses)
             ResponseTile(
               response: raw as Map<String, dynamic>,
@@ -161,6 +160,99 @@ class _InspectionScreenState extends State<InspectionScreen> {
 
 enum _PhotoSource { camera, gallery }
 
+class _InspectionHeader extends StatelessWidget {
+  const _InspectionHeader({required this.inspection});
+
+  final Map<String, dynamic> inspection;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = inspection['store'] as Map<String, dynamic>;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Wrap(
+          spacing: 20,
+          runSpacing: 16,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 260,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(store['name'] as String,
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('${store['store_code']} - ${store['address']}'),
+                ],
+              ),
+            ),
+            _InspectionMetric(
+              label: 'Score',
+              value: '${inspection['score'] ?? 0}',
+              icon: Icons.speed,
+            ),
+            _InspectionMetric(
+              label: 'Status',
+              value: inspection['status'].toString(),
+              icon: Icons.assignment,
+            ),
+            if (inspection['grade'] != null)
+              _InspectionMetric(
+                label: 'Grade',
+                value: inspection['grade'].toString(),
+                icon: Icons.workspace_premium,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InspectionMetric extends StatelessWidget {
+  const _InspectionMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xffdfe5d8)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium),
+                Text(label, style: Theme.of(context).textTheme.labelMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ResponseTile extends StatefulWidget {
   const ResponseTile(
       {super.key,
@@ -197,24 +289,41 @@ class _ResponseTileState extends State<ResponseTile> {
   @override
   Widget build(BuildContext context) {
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.response['category'] as String,
-                style: Theme.of(context).textTheme.labelMedium),
-            Text(widget.response['title'] as String,
-                style: Theme.of(context).textTheme.titleMedium),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('N/A'),
-              value: _notApplicable,
-              onChanged: (value) {
-                setState(() => _notApplicable = value ?? false);
-                _save(context);
-              },
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CategoryChip(
+                          label: widget.response['category'] as String),
+                      const SizedBox(height: 8),
+                      Text(widget.response['title'] as String,
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ],
+                  ),
+                ),
+                Checkbox(
+                  value: _notApplicable,
+                  onChanged: (value) {
+                    setState(() => _notApplicable = value ?? false);
+                    _save(context);
+                  },
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Text('N/A'),
+                ),
+              ],
             ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -231,11 +340,14 @@ class _ResponseTileState extends State<ResponseTile> {
                   ),
                 ),
                 Text(_score.round().toString()),
+                const SizedBox(width: 12),
+                const Text('Pass'),
                 Switch(
                     value: _passed,
                     onChanged: (value) => setState(() => _passed = value)),
               ],
             ),
+            const SizedBox(height: 8),
             TextField(
               controller: _comment,
               decoration: const InputDecoration(labelText: 'Comment'),
@@ -291,6 +403,24 @@ class _ResponseTileState extends State<ResponseTile> {
   }
 }
 
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+    );
+  }
+}
+
 class PhotoStrip extends StatelessWidget {
   const PhotoStrip({super.key, required this.photos});
 
@@ -301,29 +431,60 @@ class PhotoStrip extends StatelessWidget {
     if (photos.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 72,
+      height: 220,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: photos.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final photo = photos[index] as Map<String, dynamic>;
           final imagePath =
               photo['annotated_image_url'] ?? photo['original_image_url'];
           if (imagePath == null) return const SizedBox.shrink();
 
-          return ClipRRect(
+          final imageUrl = _absoluteApiUrl(context, imagePath.toString());
+          return InkWell(
+            onTap: () => _openPhoto(context, imageUrl),
             borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              _absoluteApiUrl(context, imagePath.toString()),
-              width: 72,
-              height: 72,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: 72,
-                height: 72,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: const Icon(Icons.broken_image),
+            child: Ink(
+              width: 260,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xffdfe5d8)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(8)),
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          child: const Icon(Icons.broken_image),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.image, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text('Photo ${index + 1}')),
+                        const Icon(Icons.open_in_full, size: 16),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -337,6 +498,36 @@ class PhotoStrip extends StatelessWidget {
 
     final baseUrl = context.read<InspectionState>().apiClient.baseUrl;
     return '$baseUrl$path';
+  }
+
+  void _openPhoto(BuildContext context, String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Attached photo'),
+            actions: [
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+                tooltip: 'Close',
+              )
+            ],
+          ),
+          body: Container(
+            color: const Color(0xff151a17),
+            child: Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5,
+                child: Image.network(imageUrl, fit: BoxFit.contain),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -488,48 +679,65 @@ class AnnotationToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final annotation = context.watch<AnnotationState>();
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          IconButton(
-              onPressed: () => annotation.setTool(AnnotationTool.pen),
-              icon: const Icon(Icons.draw),
-              tooltip: 'Pen'),
-          IconButton(
-              onPressed: () => annotation.setTool(AnnotationTool.arrow),
-              icon: const Icon(Icons.arrow_outward),
-              tooltip: 'Arrow'),
-          IconButton(
-              onPressed: () => annotation.setTool(AnnotationTool.circle),
-              icon: const Icon(Icons.circle_outlined),
-              tooltip: 'Circle'),
-          IconButton(
-              onPressed: () => annotation.setTool(AnnotationTool.rectangle),
-              icon: const Icon(Icons.crop_square),
-              tooltip: 'Rectangle'),
-          IconButton(
-              onPressed: () => annotation.setTool(AnnotationTool.text),
-              icon: const Icon(Icons.text_fields),
-              tooltip: 'Text'),
-          IconButton(
-              onPressed: annotation.undo,
-              icon: const Icon(Icons.undo),
-              tooltip: 'Undo'),
-          IconButton(
-              onPressed: annotation.redo,
-              icon: const Icon(Icons.redo),
-              tooltip: 'Redo'),
-          IconButton(
-              onPressed: annotation.clear,
-              icon: const Icon(Icons.clear),
-              tooltip: 'Clear'),
-          Slider(
-              value: annotation.strokeWidth,
-              min: 1,
-              max: 8,
-              onChanged: annotation.setStrokeWidth),
-        ],
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            SegmentedButton<AnnotationTool>(
+              segments: const [
+                ButtonSegment(
+                    value: AnnotationTool.pen,
+                    icon: Icon(Icons.draw),
+                    tooltip: 'Pen'),
+                ButtonSegment(
+                    value: AnnotationTool.arrow,
+                    icon: Icon(Icons.arrow_outward),
+                    tooltip: 'Arrow'),
+                ButtonSegment(
+                    value: AnnotationTool.circle,
+                    icon: Icon(Icons.circle_outlined),
+                    tooltip: 'Circle'),
+                ButtonSegment(
+                    value: AnnotationTool.rectangle,
+                    icon: Icon(Icons.crop_square),
+                    tooltip: 'Rectangle'),
+                ButtonSegment(
+                    value: AnnotationTool.text,
+                    icon: Icon(Icons.text_fields),
+                    tooltip: 'Text'),
+              ],
+              selected: {annotation.tool},
+              showSelectedIcon: false,
+              onSelectionChanged: (selected) =>
+                  annotation.setTool(selected.first),
+            ),
+            const SizedBox(width: 12),
+            IconButton(
+                onPressed: annotation.undo,
+                icon: const Icon(Icons.undo),
+                tooltip: 'Undo'),
+            IconButton(
+                onPressed: annotation.redo,
+                icon: const Icon(Icons.redo),
+                tooltip: 'Redo'),
+            IconButton(
+                onPressed: annotation.clear,
+                icon: const Icon(Icons.clear),
+                tooltip: 'Clear'),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 180,
+              child: Slider(
+                  value: annotation.strokeWidth,
+                  min: 1,
+                  max: 8,
+                  onChanged: annotation.setStrokeWidth),
+            ),
+          ],
+        ),
       ),
     );
   }
