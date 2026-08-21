@@ -52,8 +52,6 @@ class ExpandPrdDomainModels < ActiveRecord::Migration[8.1]
 
     add_reference :inspection_responses, :inspection_question, foreign_key: true
     add_column :inspection_responses, :not_applicable, :boolean, null: false, default: false
-    change_column_null :inspection_responses, :checklist_item_id, true
-
     rename_column :inspection_photos, :annotation_json, :annotation_data
 
     create_table :corrective_actions do |t|

@@ -1,6 +1,6 @@
-# Store Inspection System
+# Bakery & Restaurant Inspection Platform
 
-Fresh modular monolith MVP for store inspections. This repository was created from new Rails and Flutter generator output, without copying an existing project.
+Fresh modular monolith MVP for franchise HQ inspection management. The repository was created as a new project with Rails and Flutter generator output; no existing bakery/storepilot project was copied.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ Fresh modular monolith MVP for store inspections. This repository was created fr
 - Bundler
 - SQLite
 - Flutter stable channel
-- Xcode or Android Studio for mobile simulators
+- Xcode or Android Studio for iOS/Android simulators
 
 ## Rails Setup
 
@@ -26,7 +26,7 @@ cd mobile
 flutter pub get
 ```
 
-If using mise:
+With mise:
 
 ```bash
 mise exec flutter@latest -- flutter pub get
@@ -34,7 +34,7 @@ mise exec flutter@latest -- flutter pub get
 
 ## Database Setup
 
-SQLite is used for development and test. Active Storage uses local disk storage.
+MVP uses SQLite and Active Storage local disk. The Rails models avoid DB-specific SQL so PostgreSQL and S3 can be added later.
 
 ```bash
 cd backend
@@ -46,6 +46,8 @@ Seed command:
 ```bash
 bin/rails db:seed
 ```
+
+Seed data creates Demo Bakery Group, three stores, Bakery Standard Inspection v1, four weighted categories, 20 questions, and demo users.
 
 ## Backend Run Command
 
@@ -75,20 +77,23 @@ mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://100.10
 
 ## Demo Login Accounts
 
-- Admin: `admin@storepilot.test` / `password123`
-- Inspector: `inspector@storepilot.test` / `password123`
+- HQ Admin: `admin@bakery-inspection.test` / `password123`
+- Inspector: `inspector@bakery-inspection.test` / `password123`
+- Store Manager: `manager@bakery-inspection.test` / `password123`
 
 ## Architecture Overview
 
-The backend is a Rails API modular monolith. Core models are `User`, `Store`, `ChecklistTemplate`, `ChecklistItem`, `Inspection`, `InspectionResponse`, and `InspectionPhoto`. Authentication uses bearer tokens. Admin-only dashboard access is enforced in the API controller layer. Images are stored through Active Storage, so local disk can later be swapped for S3. SQLite can later be swapped for PostgreSQL through Rails database configuration.
+The backend is a Rails API modular monolith under `/api/v1`. Core models are `Organization`, `User`, `Store`, `InspectionTemplate`, `InspectionCategory`, `InspectionQuestion`, `Inspection`, `InspectionResponse`, `InspectionPhoto`, and `CorrectiveAction`. Authentication uses bearer tokens. Role checks distinguish admin, inspector, and store manager paths. Organization IDs scope operational data.
 
-The Flutter app keeps core responsibilities separated:
+Inspection templates are data-driven, not hard-coded in application logic. Scoring supports 1-5 answers, N/A exclusion from the denominator, category/question weights, automatic 100-point score calculation, and grades. Photos use Active Storage with separate `original_image` and `annotated_image` attachments plus JSON annotation metadata.
+
+The Flutter app keeps responsibilities separated:
 
 - `lib/api` API client
 - `lib/auth` authentication state
 - `lib/drafts` local SQLite draft storage
 - `lib/photos` camera/photo picker
-- `lib/annotations` image annotation state
+- `lib/annotations` image annotation state and tools
 - `lib/inspections` inspection state
 - `lib/screens` workflow UI
 
@@ -97,5 +102,5 @@ The Flutter app keeps core responsibilities separated:
 The critical workflow is backed by real database/API calls:
 
 ```text
-Login -> Store -> Start Inspection -> Checklist -> Photo/Annotation -> Comment -> Score -> Submit -> History -> Dashboard
+Admin login -> Store create -> Template create -> Inspector login -> Store select -> Inspection start -> Checklist scoring -> Photo/annotation -> Comment -> Corrective Action -> Submit -> Dashboard -> Store history -> Action status update
 ```

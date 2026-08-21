@@ -2,14 +2,12 @@
 
 one:
   inspection: one
-  checklist_item: one
   score: 1
   passed: false
   comment: MyText
 
 two:
   inspection: two
-  checklist_item: two
   score: 1
   passed: false
   comment: MyText

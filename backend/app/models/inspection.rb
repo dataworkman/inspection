@@ -53,7 +53,7 @@ class Inspection < ApplicationRecord
       inspector: (inspector || user).as_api_json,
       grade: grade
     }
-    payload[:responses] = inspection_responses.includes(:checklist_item, :inspection_photos).map(&:as_api_json) if include_detail
+    payload[:responses] = inspection_responses.includes(inspection_question: :inspection_category).map(&:as_api_json) if include_detail
     payload
   end
 

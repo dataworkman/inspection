@@ -1,6 +1,5 @@
 class InspectionResponse < ApplicationRecord
   belongs_to :inspection
-  belongs_to :checklist_item, optional: true
   belongs_to :inspection_question, optional: true
 
   has_many :inspection_photos, dependent: :nullify
