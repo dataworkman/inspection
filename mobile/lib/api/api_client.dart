@@ -40,6 +40,7 @@ class ApiClient {
 
   Future<Map<String, dynamic>> uploadPhoto({
     required XFile file,
+    XFile? annotatedFile,
     required int responseId,
     String? annotationJson,
     String? comment,
@@ -59,11 +60,23 @@ class ApiClient {
       filename: filename,
       contentType: mediaType,
     ));
+
+    final annotated = annotatedFile ?? file;
+    final annotatedBytes =
+        annotatedFile == null ? bytes : await annotated.readAsBytes();
+    final annotatedFilename = annotated.name.isEmpty
+        ? 'inspection-photo-annotated.png'
+        : annotated.name;
+    final annotatedContentType =
+        lookupMimeType(annotatedFilename, headerBytes: annotatedBytes);
+    final annotatedMediaType = annotatedContentType == null
+        ? null
+        : MediaType.parse(annotatedContentType);
     request.files.add(http.MultipartFile.fromBytes(
       'photo[annotated_image]',
-      bytes,
-      filename: filename,
-      contentType: mediaType,
+      annotatedBytes,
+      filename: annotatedFilename,
+      contentType: annotatedMediaType,
     ));
 
     final response = await http.Response.fromStream(await request.send());

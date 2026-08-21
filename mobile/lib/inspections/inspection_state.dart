@@ -61,6 +61,7 @@ class InspectionState extends ChangeNotifier {
 
   Future<void> uploadPhoto({
     required XFile file,
+    XFile? annotatedFile,
     required int? responseId,
     required String annotationJson,
     String? comment,
@@ -68,6 +69,7 @@ class InspectionState extends ChangeNotifier {
     final inspectionId = activeInspection!['id'] as int;
     await apiClient.uploadPhoto(
       file: file,
+      annotatedFile: annotatedFile,
       responseId: responseId!,
       annotationJson: annotationJson,
       comment: comment,

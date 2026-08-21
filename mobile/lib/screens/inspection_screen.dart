@@ -1,5 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -92,11 +95,11 @@ class _InspectionScreenState extends State<InspectionScreen> {
   ) async {
     if (!context.mounted) return;
 
-    final annotation = await Navigator.of(context).push<String>(
+    final annotation = await Navigator.of(context).push<AnnotationResult>(
           MaterialPageRoute(
               builder: (_) => AnnotationScreen(file: selectedFile)),
         ) ??
-        '{}';
+        const AnnotationResult(payload: '{}');
     if (!context.mounted) return;
 
     try {
@@ -104,8 +107,9 @@ class _InspectionScreenState extends State<InspectionScreen> {
           .showSnackBar(const SnackBar(content: Text('Uploading photo...')));
       await context.read<InspectionState>().uploadPhoto(
             file: selectedFile,
+            annotatedFile: annotation.file,
             responseId: response['id'] as int,
-            annotationJson: annotation,
+            annotationJson: annotation.payload,
             comment: 'Field photo',
           );
       if (context.mounted) {
@@ -336,10 +340,25 @@ class PhotoStrip extends StatelessWidget {
   }
 }
 
-class AnnotationScreen extends StatelessWidget {
+class AnnotationResult {
+  const AnnotationResult({required this.payload, this.file});
+
+  final String payload;
+  final XFile? file;
+}
+
+class AnnotationScreen extends StatefulWidget {
   const AnnotationScreen({super.key, required this.file});
 
   final XFile file;
+
+  @override
+  State<AnnotationScreen> createState() => _AnnotationScreenState();
+}
+
+class _AnnotationScreenState extends State<AnnotationScreen> {
+  final _previewKey = GlobalKey();
+  late final Future<Uint8List> _bytes = widget.file.readAsBytes();
 
   @override
   Widget build(BuildContext context) {
@@ -351,8 +370,7 @@ class AnnotationScreen extends StatelessWidget {
           actions: [
             Consumer<AnnotationState>(
               builder: (context, annotation, _) => IconButton(
-                onPressed: () =>
-                    Navigator.of(context).pop(annotation.toPayload()),
+                onPressed: () => _finish(context, annotation),
                 icon: const Icon(Icons.check),
                 tooltip: 'Done',
               ),
@@ -365,37 +383,56 @@ class AnnotationScreen extends StatelessWidget {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final imageSize =
+                  final canvasSize =
                       Size(constraints.maxWidth, constraints.maxHeight);
                   return GestureDetector(
-                    onTapUp: (details) => context
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (details) => context
                         .read<AnnotationState>()
-                        .addMark(details.localPosition, imageSize, 'Issue'),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        FutureBuilder<Uint8List>(
-                          future: file.readAsBytes(),
-                          builder: (context, snapshot) {
-                            if (snapshot.hasError) {
-                              return _PhotoPreviewError(
-                                  error: snapshot.error ?? 'Unknown error');
-                            }
-                            if (!snapshot.hasData) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            }
-                            return _PickedPhotoImage(
-                              file: file,
-                              bytes: snapshot.data!,
-                            );
-                          },
-                        ),
-                        Consumer<AnnotationState>(
-                          builder: (context, annotation, child) => CustomPaint(
-                              painter: AnnotationPainter(annotation.marks)),
-                        ),
-                      ],
+                        .startMark(details.localPosition, canvasSize, 'Issue'),
+                    onPanUpdate: (details) => context
+                        .read<AnnotationState>()
+                        .updateMark(details.localPosition, canvasSize),
+                    onPanEnd: (_) =>
+                        context.read<AnnotationState>().finishMark(),
+                    onTapUp: (details) {
+                      final annotation = context.read<AnnotationState>();
+                      annotation.startMark(
+                          details.localPosition, canvasSize, 'Issue');
+                      annotation.finishMark();
+                    },
+                    child: RepaintBoundary(
+                      key: _previewKey,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          FutureBuilder<Uint8List>(
+                            future: _bytes,
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError) {
+                                return _PhotoPreviewError(
+                                    error: snapshot.error ?? 'Unknown error');
+                              }
+                              if (!snapshot.hasData) {
+                                return const Center(
+                                    child: CircularProgressIndicator());
+                              }
+                              return _PickedPhotoImage(
+                                file: widget.file,
+                                bytes: snapshot.data!,
+                              );
+                            },
+                          ),
+                          Consumer<AnnotationState>(
+                            builder: (context, annotation, child) =>
+                                CustomPaint(
+                                    painter: AnnotationPainter([
+                              ...annotation.marks,
+                              if (annotation.draft != null) annotation.draft!,
+                            ])),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -405,6 +442,43 @@ class AnnotationScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _finish(BuildContext context, AnnotationState annotation) async {
+    annotation.finishMark();
+    final payload = annotation.toPayload();
+    XFile? annotatedFile;
+    try {
+      final boundary = _previewKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary != null) {
+        final image = await boundary.toImage(pixelRatio: 1);
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        final bytes = data?.buffer.asUint8List();
+        if (bytes != null) {
+          annotatedFile = XFile.fromData(
+            bytes,
+            name: _annotatedFilename(widget.file.name),
+            mimeType: 'image/png',
+            length: bytes.length,
+          );
+        }
+      }
+    } catch (error) {
+      debugPrint('Annotated image capture failed: $error');
+    }
+
+    if (context.mounted) {
+      Navigator.of(context)
+          .pop(AnnotationResult(payload: payload, file: annotatedFile));
+    }
+  }
+
+  String _annotatedFilename(String originalName) {
+    final stem = originalName.contains('.')
+        ? originalName.substring(0, originalName.lastIndexOf('.'))
+        : (originalName.isEmpty ? 'inspection-photo' : originalName);
+    return '$stem-annotated.png';
   }
 }
 
@@ -519,23 +593,38 @@ class AnnotationPainter extends CustomPainter {
       final paint = Paint()
         ..color = mark.color
         ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
         ..strokeWidth = mark.strokeWidth;
       final center = Offset(mark.x * size.width, mark.y * size.height);
+      final end = Offset((mark.endX ?? mark.x) * size.width,
+          (mark.endY ?? mark.y) * size.height);
       switch (mark.tool) {
         case AnnotationTool.pen:
-          canvas.drawCircle(center, 4, paint..style = PaintingStyle.fill);
+          if (mark.points.length > 1) {
+            final path = Path()
+              ..moveTo(mark.points.first.dx * size.width,
+                  mark.points.first.dy * size.height);
+            for (final point in mark.points.skip(1)) {
+              path.lineTo(point.dx * size.width, point.dy * size.height);
+            }
+            canvas.drawPath(path, paint);
+          } else {
+            canvas.drawCircle(center, mark.strokeWidth * 1.4,
+                paint..style = PaintingStyle.fill);
+          }
         case AnnotationTool.arrow:
-          canvas.drawLine(
-              center.translate(-26, 20), center.translate(26, -20), paint);
-          canvas.drawLine(
-              center.translate(26, -20), center.translate(6, -18), paint);
-          canvas.drawLine(
-              center.translate(26, -20), center.translate(18, 0), paint);
+          final arrowEnd = end == center ? center.translate(56, -36) : end;
+          _drawArrow(canvas, center, arrowEnd, paint);
         case AnnotationTool.circle:
-          canvas.drawCircle(center, 24, paint);
+          final rect = Rect.fromPoints(
+              center, end == center ? center.translate(56, 56) : end);
+          canvas.drawOval(rect, paint);
         case AnnotationTool.rectangle:
           canvas.drawRect(
-              Rect.fromCenter(center: center, width: 56, height: 36), paint);
+              Rect.fromPoints(
+                  center, end == center ? center.translate(72, 48) : end),
+              paint);
         case AnnotationTool.text:
           final painter = TextPainter(
               text: TextSpan(
@@ -546,6 +635,19 @@ class AnnotationPainter extends CustomPainter {
           painter.paint(canvas, center);
       }
     }
+  }
+
+  void _drawArrow(Canvas canvas, Offset start, Offset end, Paint paint) {
+    canvas.drawLine(start, end, paint);
+    final direction = end - start;
+    if (direction.distance == 0) return;
+    final unit = direction / direction.distance;
+    final normal = Offset(-unit.dy, unit.dx);
+    final headLength = 18.0 + paint.strokeWidth;
+    final headWidth = 8.0 + paint.strokeWidth;
+    final base = end - unit * headLength;
+    canvas.drawLine(end, base + normal * headWidth, paint);
+    canvas.drawLine(end, base - normal * headWidth, paint);
   }
 
   @override
