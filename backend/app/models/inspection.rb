@@ -14,6 +14,15 @@ class Inspection < ApplicationRecord
 
   scope :recent, -> { order(created_at: :desc) }
   scope :submitted, -> { where(status: "submitted") }
+  scope :with_ordered_detail, -> {
+    includes(
+      :store,
+      :user,
+      :inspector,
+      :inspection_template,
+      inspection_responses: [ :inspection_photos, { inspection_question: :inspection_category } ]
+    )
+  }
 
   def draft?
     status == "draft"
@@ -53,7 +62,7 @@ class Inspection < ApplicationRecord
       inspector: (inspector || user).as_api_json,
       grade: grade
     }
-    payload[:responses] = inspection_responses.includes(inspection_question: :inspection_category).map(&:as_api_json) if include_detail
+    payload[:responses] = ordered_responses.map(&:as_api_json) if include_detail
     payload
   end
 
@@ -64,5 +73,21 @@ class Inspection < ApplicationRecord
     return "Needs Improvement" if total_score >= 70
 
     "Critical"
+  end
+
+  def ordered_responses
+    inspection_responses
+      .includes(inspection_question: :inspection_category)
+      .sort_by do |response|
+        question = response.inspection_question
+        category = question&.inspection_category
+        [
+          category&.position || Float::INFINITY,
+          category&.id || Float::INFINITY,
+          question&.position || Float::INFINITY,
+          question&.id || Float::INFINITY,
+          response.id || Float::INFINITY
+        ]
+      end
   end
 end

@@ -40,7 +40,7 @@ module Api
         template = @inspection.inspection_template
         render json: {
           template: template.as_api_json(include_questions: true),
-          responses: @inspection.inspection_responses.includes(:inspection_photos, inspection_question: :inspection_category).map(&:as_api_json)
+          responses: @inspection.ordered_responses.map(&:as_api_json)
         }
       end
 
@@ -91,13 +91,7 @@ module Api
       end
 
       def load_inspection_detail(id)
-        visible_inspections.includes(
-          :store,
-          :user,
-          :inspector,
-          :inspection_template,
-          inspection_responses: [ :inspection_photos, { inspection_question: :inspection_category } ]
-        ).find(id)
+        visible_inspections.with_ordered_detail.find(id)
       end
     end
   end

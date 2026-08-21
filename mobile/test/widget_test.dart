@@ -6,6 +6,7 @@ import 'package:store_inspection_mobile/api/api_client.dart';
 import 'package:store_inspection_mobile/drafts/local_draft_storage.dart';
 import 'package:store_inspection_mobile/inspections/inspection_state.dart';
 import 'package:store_inspection_mobile/screens/home_screen.dart';
+import 'package:store_inspection_mobile/screens/inspection_screen.dart';
 import 'package:store_inspection_mobile/screens/login_screen.dart';
 
 void main() {
@@ -62,5 +63,52 @@ void main() {
     expect(find.text('1'), findsOneWidget);
     expect(find.text('Airport Bakery'), findsOneWidget);
     expect(find.text('Downtown Bakery'), findsOneWidget);
+  });
+
+  testWidgets('inspection result groups rows by category', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: InspectionResultScreen(
+        inspection: {
+          'status': 'submitted',
+          'score': 88,
+          'grade': 'Good',
+          'store': {
+            'name': 'Downtown Bakery',
+            'store_code': 'DT-BKY',
+            'address': '101 Main Street',
+          },
+          'responses': [
+            {
+              'category': 'Service',
+              'category_position': 2,
+              'title': 'Greeting',
+              'position': 1,
+              'score': 4,
+              'max_score': 5,
+              'passed': true,
+              'photos': [],
+            },
+            {
+              'category': 'Cleanliness',
+              'category_position': 1,
+              'title': 'Counters',
+              'position': 1,
+              'score': 5,
+              'max_score': 5,
+              'passed': true,
+              'photos': [],
+            },
+          ],
+        },
+      ),
+    ));
+
+    final cleanlinessTop = tester.getTopLeft(find.text('Cleanliness').first).dy;
+    final serviceTop = tester.getTopLeft(find.text('Service').first).dy;
+
+    expect(cleanlinessTop, lessThan(serviceTop));
+    expect(find.text('Counters'), findsOneWidget);
+    expect(find.text('Greeting'), findsOneWidget);
+    expect(find.text('Item'), findsNWidgets(2));
   });
 }

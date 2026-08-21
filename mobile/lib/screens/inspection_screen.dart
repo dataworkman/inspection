@@ -30,7 +30,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final responses = inspection['responses'] as List<dynamic>;
+    final responses = _groupResponsesByCategory(inspection['responses']);
     return Scaffold(
       appBar: AppBar(
           title: Text(
@@ -40,12 +40,17 @@ class _InspectionScreenState extends State<InspectionScreen> {
         children: [
           _InspectionHeader(inspection: inspection),
           const SizedBox(height: 16),
-          for (final raw in responses)
-            ResponseTile(
-              response: raw as Map<String, dynamic>,
-              onPhoto: _addPhoto,
-              onPhotoSelected: _uploadSelectedPhoto,
-            ),
+          for (final group in responses) ...[
+            _CategorySectionHeader(group: group),
+            const SizedBox(height: 8),
+            for (final response in group.responses)
+              ResponseTile(
+                response: response,
+                onPhoto: _addPhoto,
+                onPhotoSelected: _uploadSelectedPhoto,
+              ),
+            const SizedBox(height: 8),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _comment,
@@ -165,6 +170,195 @@ class _InspectionScreenState extends State<InspectionScreen> {
 
 enum _PhotoSource { camera, gallery }
 
+List<_CategoryResponseGroup> _groupResponsesByCategory(Object? rawResponses) {
+  final responses = (rawResponses as List<dynamic>? ?? const [])
+      .cast<Map<String, dynamic>>()
+      .toList()
+    ..sort((left, right) {
+      final categoryOrder = _readInt(left['category_position'])
+          .compareTo(_readInt(right['category_position']));
+      if (categoryOrder != 0) return categoryOrder;
+
+      final categoryName = (left['category']?.toString() ?? '')
+          .compareTo(right['category']?.toString() ?? '');
+      if (categoryName != 0) return categoryName;
+
+      final questionOrder =
+          _readInt(left['position']).compareTo(_readInt(right['position']));
+      if (questionOrder != 0) return questionOrder;
+
+      return (left['title']?.toString() ?? '')
+          .compareTo(right['title']?.toString() ?? '');
+    });
+
+  final groups = <_CategoryResponseGroup>[];
+  for (final response in responses) {
+    final category = response['category']?.toString() ?? 'Uncategorized';
+    final position = _readInt(response['category_position']);
+    if (groups.isEmpty || groups.last.name != category) {
+      groups.add(_CategoryResponseGroup(
+        name: category,
+        position: position == _lastSortPosition ? null : position,
+        responses: [],
+      ));
+    }
+    groups.last.responses.add(response);
+  }
+
+  return groups;
+}
+
+const _lastSortPosition = 1 << 30;
+
+int _readInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? _lastSortPosition;
+}
+
+class _CategoryResponseGroup {
+  _CategoryResponseGroup({
+    required this.name,
+    required this.position,
+    required this.responses,
+  });
+
+  final String name;
+  final int? position;
+  final List<Map<String, dynamic>> responses;
+}
+
+class _CategorySectionHeader extends StatelessWidget {
+  const _CategorySectionHeader({required this.group});
+
+  final _CategoryResponseGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final answered = group.responses.where((response) {
+      final hasScore = ((response['score'] as num?) ?? 0) > 0;
+      final hasComment = response['comment']?.toString().isNotEmpty == true;
+      final hasPhotos =
+          (response['photos'] as List<dynamic>? ?? const []).isNotEmpty;
+      return hasScore ||
+          hasComment ||
+          hasPhotos ||
+          response['not_applicable'] == true;
+    }).length;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xffcfdac6)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            child: Text('${group.position ?? ''}'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(group.name,
+                style: Theme.of(context).textTheme.titleMedium),
+          ),
+          Text('$answered/${group.responses.length}',
+              style: Theme.of(context).textTheme.labelLarge),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryResultTable extends StatelessWidget {
+  const _CategoryResultTable({
+    required this.group,
+    required this.responseResult,
+  });
+
+  final _CategoryResponseGroup group;
+  final String Function(Map<String, dynamic> response) responseResult;
+
+  @override
+  Widget build(BuildContext context) {
+    final scoredResponses = group.responses
+        .where((response) => response['not_applicable'] != true)
+        .toList();
+    final earned = scoredResponses.fold<double>(
+        0, (total, response) => total + (((response['score'] as num?) ?? 0)));
+    final possible = scoredResponses.fold<double>(0,
+        (total, response) => total + (((response['max_score'] as num?) ?? 5)));
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(group.name,
+                      style: Theme.of(context).textTheme.titleMedium),
+                ),
+                _CategoryChip(
+                    label: possible > 0
+                        ? '${earned.round()}/${possible.round()}'
+                        : 'N/A'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: WidgetStatePropertyAll(
+                    Theme.of(context).colorScheme.surfaceContainerHighest),
+                columns: const [
+                  DataColumn(label: Text('Item')),
+                  DataColumn(label: Text('Score')),
+                  DataColumn(label: Text('Result')),
+                  DataColumn(label: Text('Comment')),
+                  DataColumn(label: Text('Photos')),
+                ],
+                rows: [
+                  for (final response in group.responses)
+                    DataRow(cells: [
+                      DataCell(SizedBox(
+                        width: 280,
+                        child: Text(
+                          response['title']?.toString() ?? '-',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )),
+                      DataCell(Text(
+                          '${response['score'] ?? 0}/${response['max_score'] ?? 5}')),
+                      DataCell(Text(responseResult(response))),
+                      DataCell(SizedBox(
+                        width: 260,
+                        child: Text(
+                          response['comment']?.toString().isNotEmpty == true
+                              ? response['comment'].toString()
+                              : '-',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )),
+                      DataCell(Text(
+                          '${(response['photos'] as List<dynamic>? ?? const []).length}')),
+                    ]),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InspectionHeader extends StatelessWidget {
   const _InspectionHeader({required this.inspection});
 
@@ -265,8 +459,8 @@ class InspectionResultScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final responses = (inspection['responses'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>();
+    final groups = _groupResponsesByCategory(inspection['responses']);
+    final responses = groups.expand((group) => group.responses).toList();
     final evidenceRows = responses
         .where((response) =>
             (response['photos'] as List<dynamic>? ?? const []).isNotEmpty)
@@ -281,53 +475,13 @@ class InspectionResultScreen extends StatelessWidget {
           const SizedBox(height: 16),
           Text('Result table', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  headingRowColor: WidgetStatePropertyAll(
-                      Theme.of(context).colorScheme.surfaceContainerHighest),
-                  columns: const [
-                    DataColumn(label: Text('Category')),
-                    DataColumn(label: Text('Item')),
-                    DataColumn(label: Text('Score')),
-                    DataColumn(label: Text('Result')),
-                    DataColumn(label: Text('Comment')),
-                    DataColumn(label: Text('Photos')),
-                  ],
-                  rows: [
-                    for (final response in responses)
-                      DataRow(cells: [
-                        DataCell(Text(response['category']?.toString() ?? '-')),
-                        DataCell(SizedBox(
-                          width: 260,
-                          child: Text(
-                            response['title']?.toString() ?? '-',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        )),
-                        DataCell(Text(
-                            '${response['score'] ?? 0}/${response['max_score'] ?? 5}')),
-                        DataCell(Text(_responseResult(response))),
-                        DataCell(SizedBox(
-                          width: 260,
-                          child: Text(
-                            response['comment']?.toString().isNotEmpty == true
-                                ? response['comment'].toString()
-                                : '-',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        )),
-                        DataCell(Text(
-                            '${(response['photos'] as List<dynamic>? ?? const []).length}')),
-                      ]),
-                  ],
-                ),
-              ),
+          for (final group in groups) ...[
+            _CategoryResultTable(
+              group: group,
+              responseResult: _responseResult,
             ),
-          ),
+            const SizedBox(height: 12),
+          ],
           if (evidenceRows.isNotEmpty) ...[
             const SizedBox(height: 20),
             Text('Attached photos',
@@ -413,9 +567,6 @@ class _ResponseTileState extends State<ResponseTile> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _CategoryChip(
-                          label: widget.response['category'] as String),
-                      const SizedBox(height: 8),
                       Text(widget.response['title'] as String,
                           style: Theme.of(context).textTheme.titleMedium),
                     ],
