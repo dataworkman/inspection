@@ -92,14 +92,11 @@ class _InspectionScreenState extends State<InspectionScreen> {
   ) async {
     if (!context.mounted) return;
 
-    String annotation = '{}';
-    if (!kIsWeb) {
-      annotation = await Navigator.of(context).push<String>(
-            MaterialPageRoute(
-                builder: (_) => AnnotationScreen(file: selectedFile)),
-          ) ??
-          '{}';
-    }
+    final annotation = await Navigator.of(context).push<String>(
+          MaterialPageRoute(
+              builder: (_) => AnnotationScreen(file: selectedFile)),
+        ) ??
+        '{}';
     if (!context.mounted) return;
 
     try {

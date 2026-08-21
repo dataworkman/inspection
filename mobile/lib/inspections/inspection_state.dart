@@ -36,7 +36,7 @@ class InspectionState extends ChangeNotifier {
       },
     });
     activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await drafts.saveDraft(activeInspection!['id'] as int, activeInspection!);
+    await _saveDraft(activeInspection!['id'] as int, activeInspection!);
     notifyListeners();
   }
 
@@ -81,7 +81,7 @@ class InspectionState extends ChangeNotifier {
       'inspection': {'general_comment': comment, 'comment': comment},
     });
     activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await drafts.saveDraft(inspectionId, activeInspection!);
+    await _saveDraft(inspectionId, activeInspection!);
     notifyListeners();
   }
 
@@ -99,7 +99,7 @@ class InspectionState extends ChangeNotifier {
   Future<void> reloadInspection(int inspectionId) async {
     final payload = await apiClient.get('/inspections/$inspectionId');
     activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await drafts.saveDraft(inspectionId, activeInspection!);
+    await _saveDraft(inspectionId, activeInspection!);
     notifyListeners();
   }
 
@@ -134,5 +134,14 @@ class InspectionState extends ChangeNotifier {
       },
     });
     await loadActions();
+  }
+
+  Future<void> _saveDraft(
+      int inspectionId, Map<String, dynamic> payload) async {
+    try {
+      await drafts.saveDraft(inspectionId, payload);
+    } catch (error) {
+      debugPrint('Draft save failed: $error');
+    }
   }
 }
