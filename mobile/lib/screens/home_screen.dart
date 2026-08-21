@@ -212,6 +212,24 @@ class HistoryView extends StatelessWidget {
               subtitle:
                   Text('${item['status']} - score ${item['score'] ?? '-'}'),
               trailing: _Pill(label: item['grade']?.toString() ?? 'Open'),
+              onTap: () async {
+                try {
+                  final detail =
+                      await inspections.loadInspectionDetail(item['id'] as int);
+                  if (context.mounted) {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            InspectionResultScreen(inspection: detail)));
+                  }
+                } catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text('Could not open inspection: $error')),
+                    );
+                  }
+                }
+              },
             ),
           );
         },

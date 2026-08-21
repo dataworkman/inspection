@@ -105,6 +105,11 @@ class InspectionState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<Map<String, dynamic>> loadInspectionDetail(int inspectionId) async {
+    final payload = await apiClient.get('/inspections/$inspectionId');
+    return payload['inspection'] as Map<String, dynamic>;
+  }
+
   Future<void> loadHistory() async {
     history =
         (await apiClient.get('/inspections'))['inspections'] as List<dynamic>;

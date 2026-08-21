@@ -59,7 +59,12 @@ class _InspectionScreenState extends State<InspectionScreen> {
           FilledButton.icon(
             onPressed: () async {
               await inspections.submit(_comment.text);
-              if (context.mounted) Navigator.of(context).pop();
+              final submitted = inspections.activeInspection;
+              if (context.mounted && submitted != null) {
+                Navigator.of(context).pushReplacement(MaterialPageRoute(
+                    builder: (_) =>
+                        InspectionResultScreen(inspection: submitted)));
+              }
             },
             icon: const Icon(Icons.cloud_done),
             label: const Text('Submit inspection'),
@@ -250,6 +255,112 @@ class _InspectionMetric extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class InspectionResultScreen extends StatelessWidget {
+  const InspectionResultScreen({super.key, required this.inspection});
+
+  final Map<String, dynamic> inspection;
+
+  @override
+  Widget build(BuildContext context) {
+    final responses = (inspection['responses'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    final evidenceRows = responses
+        .where((response) =>
+            (response['photos'] as List<dynamic>? ?? const []).isNotEmpty)
+        .toList();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Inspection Result')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        children: [
+          _InspectionHeader(inspection: inspection),
+          const SizedBox(height: 16),
+          Text('Result table', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingRowColor: WidgetStatePropertyAll(
+                      Theme.of(context).colorScheme.surfaceContainerHighest),
+                  columns: const [
+                    DataColumn(label: Text('Category')),
+                    DataColumn(label: Text('Item')),
+                    DataColumn(label: Text('Score')),
+                    DataColumn(label: Text('Result')),
+                    DataColumn(label: Text('Comment')),
+                    DataColumn(label: Text('Photos')),
+                  ],
+                  rows: [
+                    for (final response in responses)
+                      DataRow(cells: [
+                        DataCell(Text(response['category']?.toString() ?? '-')),
+                        DataCell(SizedBox(
+                          width: 260,
+                          child: Text(
+                            response['title']?.toString() ?? '-',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                        DataCell(Text(
+                            '${response['score'] ?? 0}/${response['max_score'] ?? 5}')),
+                        DataCell(Text(_responseResult(response))),
+                        DataCell(SizedBox(
+                          width: 260,
+                          child: Text(
+                            response['comment']?.toString().isNotEmpty == true
+                                ? response['comment'].toString()
+                                : '-',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                        DataCell(Text(
+                            '${(response['photos'] as List<dynamic>? ?? const []).length}')),
+                      ]),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (evidenceRows.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text('Attached photos',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final response in evidenceRows)
+              Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(response['title']?.toString() ?? '-',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      PhotoStrip(
+                          photos:
+                              response['photos'] as List<dynamic>? ?? const []),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _responseResult(Map<String, dynamic> response) {
+    if (response['not_applicable'] == true) return 'N/A';
+    if (response['passed'] == true) return 'Pass';
+    return 'Review';
   }
 }
 
