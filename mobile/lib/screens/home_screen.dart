@@ -187,22 +187,57 @@ class DashboardView extends StatelessWidget {
     if (dashboard == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    final storeRows = (dashboard['store_ranking'] ??
+        dashboard['stores'] ??
+        const []) as List<dynamic>;
+    final attentionRows =
+        (dashboard['attention_required'] ?? const []) as List<dynamic>;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Average score: ${dashboard['average_score'] ?? '-'}',
+        Text(
+            'Average score: ${dashboard['average_inspection_score'] ?? dashboard['average_score'] ?? '-'}',
             style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text('Submitted inspections: ${dashboard['submitted_inspections']}'),
+        Text('Open actions: ${dashboard['open_corrective_actions'] ?? 0}'),
+        Text(
+            'Critical actions: ${dashboard['critical_corrective_actions'] ?? 0}'),
         const SizedBox(height: 16),
-        for (final row in dashboard['stores'] as List<dynamic>)
-          ListTile(
-            title: Text(((row as Map<String, dynamic>)['store']
-                as Map<String, dynamic>)['name'] as String),
-            subtitle: Text(
-                'Avg ${row['average_score'] ?? '-'} across ${row['submitted_inspections']} submitted'),
-          ),
+        if (attentionRows.isNotEmpty) ...[
+          Text('Attention required',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final raw in attentionRows)
+            _DashboardStoreTile(row: raw as Map<String, dynamic>),
+          const SizedBox(height: 16),
+        ],
+        Text('Store ranking', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        for (final raw in storeRows)
+          _DashboardStoreTile(row: raw as Map<String, dynamic>),
       ],
+    );
+  }
+}
+
+class _DashboardStoreTile extends StatelessWidget {
+  const _DashboardStoreTile({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = row['store'] as Map<String, dynamic>;
+    final latestScore = row['latest_score'];
+    final averageScore = row['average_score'];
+    final submittedCount = row['submitted_inspections'] ?? 0;
+    final openIssues = row['open_issues'] ?? 0;
+    return ListTile(
+      title: Text(store['name'] as String),
+      subtitle: Text(
+          'Latest ${latestScore ?? '-'} / Avg ${averageScore ?? '-'} across $submittedCount submitted - $openIssues open actions'),
     );
   }
 }
