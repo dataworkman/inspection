@@ -7,6 +7,7 @@ Fresh modular monolith MVP for franchise HQ inspection management. The repositor
 - Ruby 3.4+
 - Bundler
 - SQLite
+- libvips (image variants; required to boot the app in production, e.g. `apt-get install libvips`)
 - Flutter stable channel (3.44+ for the bundled Android Gradle setup: AGP 9, Gradle 9.1, JDK 17)
 - Xcode or Android Studio for iOS/Android simulators
 
@@ -47,7 +48,7 @@ Seed command:
 bin/rails db:seed
 ```
 
-Seed data creates Demo Bakery Group, three stores, Bakery Standard Inspection v1, four weighted categories, 20 questions, and demo users.
+Seed data creates Demo Bakery Group, three stores, Bakery Standard Inspection v1, four weighted categories, 20 questions, and demo users. The seeds are skipped in production (they contain known passwords) unless `SEED_DEMO_DATA=1` is set.
 
 ## Backend Run Command
 
@@ -73,6 +74,16 @@ mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://<host>
 
 `API_BASE_URL` defaults to `http://localhost:3002`. Plain HTTP works in debug/profile builds only; Android release builds block cleartext traffic, so point release builds at an HTTPS URL. The login form is prefilled with the demo inspector account in debug builds only.
 
+## Configuration
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `API_BASE_URL` | Flutter `--dart-define` | Backend address. Defaults to `http://localhost:3002`; use HTTPS for release builds. |
+| `API_TOKEN_TTL_DAYS` | backend | Lifetime of a login session (default 30). |
+| `CORS_ORIGINS` | backend | Comma-separated browser origins allowed to call the API. Unset means *any* origin in development/test and *none* in production (native apps are not affected). |
+| `SEED_DEMO_DATA` | backend | Set to `1` to allow `db:seed` to create the demo data in production. |
+| `SQLITE_DIR` | backend | Directory of the production SQLite files (default `storage`); put it on a persistent volume. |
+
 ## Demo Login Accounts
 
 - HQ Admin: `admin@bakery-inspection.test` / `password123`
@@ -89,9 +100,24 @@ mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://<host>
 
 Every request is scoped to the caller's organization. Deactivated users and users without an organization are rejected. Submitted inspections are read-only (409).
 
+## Sessions
+
+A login returns a bearer token that expires after `API_TOKEN_TTL_DAYS`. Only a SHA-256 digest is stored, a user can be signed in on several devices at once (the newest 10 sessions are kept), and `DELETE /api/v1/auth/logout` revokes just the calling device's token. Login attempts are limited to 20 per 5 minutes per address and 8 per 15 minutes per account (HTTP 429 with `Retry-After`). Deactivated users are rejected immediately.
+
+## Inspection templates
+
+Templates are data. Editing the categories or questions of a template that inspections already use creates a new version (`version + 1`, a full copy with your edits) and deactivates the old one, so running and past inspections keep the questions, weights and max scores they were started with while new inspections use the new version. Templates nobody has used yet, and metadata-only changes (name, description, active), are edited in place.
+
 ## Scoring
 
 Answers use a 1..`max_score` scale; `0` means "not answered". Each category is scored as a percentage of its own possible points (question weights apply inside the category), and the total is the category-weight average of those percentages, so category weights are shares of the total no matter how many questions a category has. N/A and unanswered items are left out. A score above a question's `max_score` is rejected. Submitting fails with 422 while a `required` question is unanswered or a `photo_required` / `comment_required` question lacks its photo or comment (N/A items are exempt).
+
+## Mobile app behavior
+
+- Answers, comments and the Pass toggle are saved as you go (typing is debounced). Anything that cannot be sent is kept in the device's local database, shown with a retry banner, retried automatically every 20 seconds, resent after the app is restarted, and flushed before an inspection is submitted.
+- Unfinished inspections can be resumed from the store list or History, and, without a connection, from "Saved on this device" on the Stores tab. Starting a new inspection, attaching photos and submitting need the server.
+- A session that is rejected by the server (expired or revoked) returns to the login screen; being offline never signs you out. Logging out revokes the token on the server, clears the previous user's data from the device, and warns first if edits could not be sent. Local data left by a different user is discarded at login.
+- Corrective actions are created from a checklist item (title, details, severity, due date) and their status is changed from the Actions tab, limited to what the user's role may set.
 
 ## Continuous Integration
 
