@@ -226,4 +226,77 @@ void main() {
       expect(api.patchBodies('/inspection_responses/1'), hasLength(1));
     });
   });
+
+  group('attaching photos', () {
+    late RecordingApiClient api;
+
+    Future<void> pumpInspection(WidgetTester tester) async {
+      api = RecordingApiClient();
+      final inspection = {
+        'id': 7,
+        'status': 'in_progress',
+        'score': 0,
+        'store': {'name': 'Downtown', 'store_code': 'DT-1', 'address': 'Main'},
+        'responses': [
+          {
+            'id': 1,
+            'title': 'Floor cleanliness',
+            'category': 'Cleanliness',
+            'category_position': 1,
+            'position': 1,
+            'score': 4,
+            'max_score': 5,
+            'not_applicable': false,
+            'photos': [],
+          },
+        ],
+      };
+      api.inspectionPayload = inspection;
+      final state = InspectionState(api, NoDraftStorage())
+        ..activeInspection = inspection;
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: MaterialApp(
+            home: InspectionScreen(photoPicker: FakePhotoPicker()),
+          ),
+        ),
+      );
+    }
+
+    Future<void> pickPhotoFromLibrary(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Add photo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Photo library'));
+      await tester.pumpAndSettle();
+      expect(find.text('Annotate photo'), findsOneWidget);
+    }
+
+    testWidgets('backing out of the annotation screen cancels the upload',
+        (tester) async {
+      await pumpInspection(tester);
+      await pickPhotoFromLibrary(tester);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Annotate photo'), findsNothing);
+      expect(api.uploads, isEmpty);
+      expect(find.text('Uploading photo...'), findsNothing);
+    });
+
+    testWidgets('finishing without drawing uploads only the original',
+        (tester) async {
+      await pumpInspection(tester);
+      await pickPhotoFromLibrary(tester);
+
+      await tester.tap(find.byTooltip('Done'));
+      await tester.pumpAndSettle();
+
+      expect(api.uploads, hasLength(1));
+      expect(api.uploads.single.responseId, 1);
+      expect(api.uploads.single.annotated, isFalse);
+      expect(api.uploads.single.annotationJson, '{"marks":[]}');
+    });
+  });
 }

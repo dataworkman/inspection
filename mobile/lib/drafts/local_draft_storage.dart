@@ -27,13 +27,18 @@ class LocalDraftStorage {
     final db = await database;
     await db.insert(
       'drafts',
-      {'inspection_id': inspectionId, 'payload': jsonEncode(payload), 'updated_at': DateTime.now().toIso8601String()},
+      {
+        'inspection_id': inspectionId,
+        'payload': jsonEncode(payload),
+        'updated_at': DateTime.now().toIso8601String()
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   Future<void> clearDraft(int inspectionId) async {
     final db = await database;
-    await db.delete('drafts', where: 'inspection_id = ?', whereArgs: [inspectionId]);
+    await db.delete('drafts',
+        where: 'inspection_id = ?', whereArgs: [inspectionId]);
   }
 }

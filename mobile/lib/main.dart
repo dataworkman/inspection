@@ -15,8 +15,8 @@ Future<void> main() async {
 
   // Override per environment: --dart-define=API_BASE_URL=https://api.example.com
   // (Android emulator: http://10.0.2.2:3002, physical device: your machine's LAN IP).
-  const baseUrl =
-      String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3002');
+  const baseUrl = String.fromEnvironment('API_BASE_URL',
+      defaultValue: 'http://localhost:3002');
   final apiClient = ApiClient(baseUrl: baseUrl);
 
   runApp(StoreInspectionApp(apiClient: apiClient));

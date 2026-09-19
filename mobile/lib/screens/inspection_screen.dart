@@ -12,7 +12,10 @@ import '../photos/photo_input_button.dart';
 import '../photos/photo_picker_service.dart';
 
 class InspectionScreen extends StatefulWidget {
-  const InspectionScreen({super.key});
+  const InspectionScreen({super.key, this.photoPicker});
+
+  /// Overridable for tests; defaults to the real camera/gallery picker.
+  final PhotoPickerService? photoPicker;
 
   @override
   State<InspectionScreen> createState() => _InspectionScreenState();
@@ -20,7 +23,7 @@ class InspectionScreen extends StatefulWidget {
 
 class _InspectionScreenState extends State<InspectionScreen> {
   final _comment = TextEditingController();
-  final _photoPicker = PhotoPickerService();
+  late final _photoPicker = widget.photoPicker ?? PhotoPickerService();
   bool _submitting = false;
 
   @override
@@ -130,11 +133,10 @@ class _InspectionScreenState extends State<InspectionScreen> {
     if (!context.mounted) return;
 
     final annotation = await Navigator.of(context).push<AnnotationResult>(
-          MaterialPageRoute(
-              builder: (_) => AnnotationScreen(file: selectedFile)),
-        ) ??
-        const AnnotationResult(payload: '{}');
-    if (!context.mounted) return;
+      MaterialPageRoute(builder: (_) => AnnotationScreen(file: selectedFile)),
+    );
+    // Backing out of the annotation screen cancels the attachment.
+    if (annotation == null || !context.mounted) return;
 
     try {
       ScaffoldMessenger.of(context)
@@ -989,6 +991,12 @@ class _AnnotationScreenState extends State<AnnotationScreen> {
     annotation.finishMark();
     final payload = annotation.toPayload();
     XFile? annotatedFile;
+    // Nothing drawn: upload just the original instead of a low-resolution
+    // screenshot of the preview.
+    if (annotation.marks.isEmpty) {
+      Navigator.of(context).pop(AnnotationResult(payload: payload));
+      return;
+    }
     try {
       final boundary = _previewKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
