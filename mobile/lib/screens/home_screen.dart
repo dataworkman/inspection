@@ -19,12 +19,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final inspections = context.read<InspectionState>();
-      inspections.loadStores();
-      inspections.loadTemplates();
-      inspections.loadHistory();
-      inspections.loadActions();
-      if (context.read<AuthState>().isAdmin) inspections.loadDashboard();
+      context
+          .read<InspectionState>()
+          .refreshAll(includeDashboard: context.read<AuthState>().isAdmin);
     });
   }
 
@@ -67,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
+    final inspections = context.watch<InspectionState>();
     final pages = [
       const StoreListView(),
       const HistoryView(),
@@ -84,7 +82,17 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Log out')
         ],
       ),
-      body: pages[_tab],
+      body: Column(
+        children: [
+          if (inspections.loadError != null)
+            _ConnectionBanner(
+              message: inspections.loadError!,
+              onRetry: () =>
+                  inspections.refreshAll(includeDashboard: auth.isAdmin),
+            ),
+          Expanded(child: pages[_tab]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) => setState(() => _tab = index),
@@ -111,7 +119,8 @@ class ActionsView extends StatelessWidget {
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
     return RefreshIndicator(
-      onRefresh: inspections.loadActions,
+      onRefresh: () => inspections.refreshAll(
+          includeDashboard: context.read<AuthState>().isAdmin),
       child: inspections.actions.isEmpty
           ? ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -224,85 +233,135 @@ class _StoreListViewState extends State<StoreListView> {
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
     final userId = context.read<AuthState>().userId;
-    return ListView.builder(
+    // Without a connection, unfinished inspections saved on this device can
+    // still be continued.
+    final savedOnDevice =
+        inspections.loadError != null ? inspections.localDrafts : const [];
+    return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-      itemCount: inspections.stores.length,
-      itemBuilder: (context, index) {
-        final store = inspections.stores[index] as Map<String, dynamic>;
-        final template = inspections.templates.isEmpty
-            ? null
-            : inspections.templates.first as Map<String, dynamic>;
-        final storeId = store['id'] as int;
-        final busy = _busyStoreId == storeId;
-        final open = inspections.openInspectionFor(storeId, userId);
-        final templateId = template?['id'] as int?;
-        return _ContentCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: _StatusIcon(
-              icon: Icons.storefront,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text(store['name'] as String,
-                style: Theme.of(context).textTheme.titleMedium),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text('${store['store_code']} - ${store['address']}'),
-            ),
-            trailing: busy
-                ? const SizedBox.square(
-                    dimension: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (open != null) ...[
-                        FilledButton.icon(
-                          onPressed: _busyStoreId != null
-                              ? null
-                              : () => _open(
-                                  context,
-                                  storeId,
-                                  () => inspections
-                                      .resumeInspection(open['id'] as int),
-                                  'resume'),
-                          icon: const Icon(Icons.play_circle),
-                          label: const Text('Resume'),
-                        ),
-                        PopupMenuButton<String>(
-                          tooltip: 'More',
-                          enabled: templateId != null && _busyStoreId == null,
-                          onSelected: (_) => _open(
+      children: [
+        if (savedOnDevice.isNotEmpty) ...[
+          Text('Saved on this device',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final draft in savedOnDevice)
+            _savedDraftCard(context, inspections, draft),
+          const SizedBox(height: 12),
+        ],
+        for (final raw in inspections.stores)
+          _storeCard(context, inspections, raw as Map<String, dynamic>, userId),
+      ],
+    );
+  }
+
+  Widget _savedDraftCard(BuildContext context, InspectionState inspections,
+      Map<String, dynamic> draft) {
+    final store = draft['store'] as Map<String, dynamic>;
+    final busy = _busyStoreId == store['id'];
+    return _ContentCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: _StatusIcon(
+          icon: Icons.save,
+          color: Theme.of(context).colorScheme.secondary,
+        ),
+        title: Text(store['name'] as String,
+            style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text('Unfinished - score ${draft['score'] ?? '-'}'),
+        trailing: busy
+            ? const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : FilledButton.icon(
+                onPressed: _busyStoreId != null
+                    ? null
+                    : () => _open(
+                        context,
+                        store['id'] as int,
+                        () => inspections.resumeInspection(draft['id'] as int),
+                        'resume'),
+                icon: const Icon(Icons.play_circle),
+                label: const Text('Resume'),
+              ),
+      ),
+    );
+  }
+
+  Widget _storeCard(BuildContext context, InspectionState inspections,
+      Map<String, dynamic> store, int? userId) {
+    final template = inspections.templates.isEmpty
+        ? null
+        : inspections.templates.first as Map<String, dynamic>;
+    final storeId = store['id'] as int;
+    final busy = _busyStoreId == storeId;
+    final open = inspections.openInspectionFor(storeId, userId);
+    final templateId = template?['id'] as int?;
+    return _ContentCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: _StatusIcon(
+          icon: Icons.storefront,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: Text(store['name'] as String,
+            style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text('${store['store_code']} - ${store['address']}'),
+        ),
+        trailing: busy
+            ? const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (open != null) ...[
+                    FilledButton.icon(
+                      onPressed: _busyStoreId != null
+                          ? null
+                          : () => _open(
+                              context,
+                              storeId,
+                              () => inspections
+                                  .resumeInspection(open['id'] as int),
+                              'resume'),
+                      icon: const Icon(Icons.play_circle),
+                      label: const Text('Resume'),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: 'More',
+                      enabled: templateId != null && _busyStoreId == null,
+                      onSelected: (_) => _open(
+                          context,
+                          storeId,
+                          () =>
+                              inspections.startInspection(storeId, templateId!),
+                          'start'),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                            value: 'new',
+                            child: Text('Start a new inspection')),
+                      ],
+                    ),
+                  ] else
+                    FilledButton.icon(
+                      onPressed: templateId == null || _busyStoreId != null
+                          ? null
+                          : () => _open(
                               context,
                               storeId,
                               () => inspections.startInspection(
-                                  storeId, templateId!),
+                                  storeId, templateId),
                               'start'),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                                value: 'new',
-                                child: Text('Start a new inspection')),
-                          ],
-                        ),
-                      ] else
-                        FilledButton.icon(
-                          onPressed: templateId == null || _busyStoreId != null
-                              ? null
-                              : () => _open(
-                                  context,
-                                  storeId,
-                                  () => inspections.startInspection(
-                                      storeId, templateId),
-                                  'start'),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Start'),
-                        ),
-                    ],
-                  ),
-          ),
-        );
-      },
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Start'),
+                    ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -341,7 +400,8 @@ class HistoryView extends StatelessWidget {
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
     return RefreshIndicator(
-      onRefresh: inspections.loadHistory,
+      onRefresh: () => inspections.refreshAll(
+          includeDashboard: context.read<AuthState>().isAdmin),
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: inspections.history.length,
@@ -481,6 +541,35 @@ class _DashboardStoreTile extends StatelessWidget {
         subtitle: Text(
             'Latest ${latestScore ?? '-'} / Avg ${averageScore ?? '-'} across $submittedCount submitted - $openIssues open actions'),
         trailing: _Pill(label: '$openIssues open'),
+      ),
+    );
+  }
+}
+
+class _ConnectionBanner extends StatelessWidget {
+  const _ConnectionBanner({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off, color: scheme.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(message,
+                  style: TextStyle(color: scheme.onErrorContainer)),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
       ),
     );
   }

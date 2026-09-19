@@ -552,7 +552,12 @@ void main() {
       api = RecordingApiClient()..token = 'secret';
       state = InspectionState(api, NoDraftStorage())
         ..activeInspection = {'id': 7, 'responses': []};
-      auth = AuthState(api)..user = {'id': 5, 'role': 'inspector'};
+      // Wired like in main(): signing out resets the inspection state.
+      auth = AuthState(
+        api,
+        onSignedOut: ({required sessionExpired}) =>
+            state.reset(clearLocalData: !sessionExpired),
+      )..user = {'id': 5, 'role': 'inspector'};
       await tester.pumpWidget(
         MultiProvider(
           providers: [
@@ -605,6 +610,8 @@ void main() {
 
       expect(auth.signedIn, isTrue);
       expect(api.requests, isNot(contains('DELETE /auth/logout')));
+      // A failed save keeps a background retry timer; stop it before the end.
+      state.reset(clearLocalData: false);
     });
 
     testWidgets('can log out anyway, discarding the unsent edits',

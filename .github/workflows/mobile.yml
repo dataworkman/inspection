@@ -23,6 +23,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      # The storage tests run against a real SQLite (sqflite_common_ffi).
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libsqlite3-dev
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

@@ -21,6 +21,7 @@ Future<void> main() async {
   final inspections = InspectionState(apiClient, LocalDraftStorage());
   final auth = AuthState(
     apiClient,
+    onSignedIn: inspections.attachToUser,
     onSignedOut: ({required sessionExpired}) =>
         inspections.reset(clearLocalData: !sessionExpired),
   )..restore();

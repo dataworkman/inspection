@@ -31,18 +31,49 @@ class _ResponseSnapshot {
     this.comment,
   });
 
+  factory _ResponseSnapshot.fromJson(
+          int inspectionId, Map<String, dynamic> json) =>
+      _ResponseSnapshot(
+        inspectionId: inspectionId,
+        score: (json['score'] as num?)?.toInt() ?? 0,
+        notApplicable: json['not_applicable'] == true,
+        passed: json['passed'] == true,
+        comment: json['comment'] as String?,
+      );
+
   final int inspectionId;
   final int score;
   final bool notApplicable;
   final bool passed;
   final String? comment;
+
+  Map<String, dynamic> toJson() => {
+        'score': score,
+        'not_applicable': notApplicable,
+        'passed': passed,
+        'comment': comment,
+      };
 }
+
+/// Whether trying again later can help (no connection, server trouble).
+bool _isRetryable(Object error) =>
+    error is ApiException &&
+    (error.isNetworkError ||
+        error.statusCode >= 500 ||
+        error.statusCode == 408 ||
+        error.statusCode == 429);
+
+/// The edit can never be applied (the inspection is gone, submitted or not the
+/// user's), so keeping it queued would only block them.
+bool _isPermanent(Object error) =>
+    error is ApiException && const [403, 404, 409].contains(error.statusCode);
 
 class InspectionState extends ChangeNotifier {
   InspectionState(this.apiClient, this.drafts);
 
   static const responseSaveDelay = Duration(milliseconds: 700);
   static const commentSaveDelay = Duration(milliseconds: 800);
+  static const retryInterval = Duration(seconds: 20);
 
   final ApiClient apiClient;
   final LocalDraftStorage drafts;
@@ -59,8 +90,23 @@ class InspectionState extends ChangeNotifier {
   Timer? _commentTimer;
   Future<void>? _commentTail;
 
+  Timer? _retryTimer;
+  // Edits the server rejected as invalid (422): shown to the user, not retried
+  // in the background until they change them.
+  final Set<String> _stuck = {};
+
   /// Message of the last failed background save; cleared once saving works again.
   String? saveError;
+
+  /// True when [saveError] is temporary and the edits will be sent again by
+  /// themselves.
+  bool saveErrorWillRetry = false;
+
+  /// Why the last refresh of the lists failed (null when it worked).
+  String? loadError;
+
+  /// Unfinished inspections saved on this device (for resuming offline).
+  List<Map<String, dynamic>> localDrafts = [];
 
   // Bumped by reset(); saves that started before it must not touch new state.
   int _epoch = 0;
@@ -85,7 +131,13 @@ class InspectionState extends ChangeNotifier {
     _pendingResponses.clear();
     _pendingComment = null;
     _pendingCommentInspectionId = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _stuck.clear();
     saveError = null;
+    saveErrorWillRetry = false;
+    loadError = null;
+    localDrafts = [];
     stores = [];
     templates = [];
     history = [];
@@ -135,10 +187,60 @@ class InspectionState extends ChangeNotifier {
   }
 
   /// Loads an unfinished inspection and makes it the active one.
+  ///
+  /// Without a connection the copy saved on this device is used instead, so an
+  /// inspection can be continued offline.
   Future<void> resumeInspection(int inspectionId) async {
-    activeInspection = await loadInspectionDetail(inspectionId);
-    await _saveDraft(inspectionId, activeInspection!);
+    Map<String, dynamic> detail;
+    try {
+      detail = await loadInspectionDetail(inspectionId);
+    } on ApiException catch (error) {
+      if (!error.isNetworkError) rethrow;
+      final saved = await _loadSavedDraft(inspectionId);
+      if (saved == null) rethrow;
+      detail = saved;
+    }
+    await _activate(detail);
+  }
+
+  Future<Map<String, dynamic>?> _loadSavedDraft(int inspectionId) async {
+    try {
+      return await drafts.loadDraft(inspectionId);
+    } catch (error) {
+      debugPrint('Reading draft failed: $error');
+      return null;
+    }
+  }
+
+  /// Makes [payload] the active inspection, showing edits that have not
+  /// reached the server yet on top of it, and keeps a copy on the device.
+  Future<void> _activate(Map<String, dynamic> payload) async {
+    activeInspection = _withPendingApplied(payload);
+    await _saveDraft(payload['id'] as int, activeInspection!);
     notifyListeners();
+  }
+
+  Map<String, dynamic> _withPendingApplied(Map<String, dynamic> payload) {
+    final result = {...payload};
+    final responses = payload['responses'];
+    if (responses is List) {
+      result['responses'] = [
+        for (final raw in responses)
+          if (raw is Map<String, dynamic> &&
+              _pendingResponses[raw['id']] != null)
+            {
+              ...raw,
+              ..._pendingResponses[raw['id']]!.toJson(),
+            }
+          else
+            raw,
+      ];
+    }
+    if (_pendingComment != null &&
+        _pendingCommentInspectionId == payload['id']) {
+      result['comment'] = _pendingComment;
+    }
+    return result;
   }
 
   Future<void> startInspection(int storeId, int templateId) async {
@@ -148,9 +250,7 @@ class InspectionState extends ChangeNotifier {
         'inspection_template_id': templateId,
       },
     });
-    activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await _saveDraft(activeInspection!['id'] as int, activeInspection!);
-    notifyListeners();
+    await _activate(payload['inspection'] as Map<String, dynamic>);
   }
 
   Future<void> updateResponse(
@@ -185,13 +285,16 @@ class InspectionState extends ChangeNotifier {
     String? comment,
     bool immediate = false,
   }) {
-    _pendingResponses[responseId] = _ResponseSnapshot(
+    final snapshot = _ResponseSnapshot(
       inspectionId: activeInspection!['id'] as int,
       score: score,
       notApplicable: notApplicable,
       passed: passed,
       comment: comment,
     );
+    _pendingResponses[responseId] = snapshot;
+    _stuck.remove('response:$responseId');
+    _persist('response', responseId, snapshot.inspectionId, snapshot.toJson());
     _responseTimers.remove(responseId)?.cancel();
     if (immediate) {
       _saveResponse(responseId);
@@ -207,6 +310,9 @@ class InspectionState extends ChangeNotifier {
   void scheduleCommentSave(String comment) {
     _pendingComment = comment;
     _pendingCommentInspectionId = activeInspection!['id'] as int;
+    _stuck.remove('comment');
+    _persist('comment', _pendingCommentInspectionId!,
+        _pendingCommentInspectionId!, {'comment': comment});
     _commentTimer?.cancel();
     _commentTimer = Timer(commentSaveDelay, _saveComment);
   }
@@ -214,12 +320,16 @@ class InspectionState extends ChangeNotifier {
   /// Sends everything that is still waiting (including saves that failed
   /// earlier) and completes when the server has it. Throws if a save fails;
   /// the unsaved edits stay queued for a retry.
-  Future<void> flushPendingSaves() async {
+  Future<void> flushPendingSaves({bool includeStuck = true}) async {
     for (final responseId in _pendingResponses.keys.toList()) {
+      if (!includeStuck && _stuck.contains('response:$responseId')) continue;
       _responseTimers.remove(responseId)?.cancel();
       _saveResponse(responseId);
     }
-    if (_pendingComment != null) _saveComment();
+    if (_pendingComment != null &&
+        (includeStuck || !_stuck.contains('comment'))) {
+      _saveComment();
+    }
     await Future.wait(_inFlight.toList());
   }
 
@@ -250,11 +360,20 @@ class InspectionState extends ChangeNotifier {
         passed: snapshot.passed,
         comment: snapshot.comment,
       );
+      // Keep the stored copy if a newer edit was queued meanwhile.
+      if (!_pendingResponses.containsKey(responseId)) {
+        _unpersist('response', responseId);
+      }
       _clearSaveError();
     } catch (error) {
       if (epoch == _epoch) {
-        _pendingResponses.putIfAbsent(responseId, () => snapshot);
-        _reportSaveError(error);
+        if (_isPermanent(error)) {
+          _unpersist('response', responseId);
+          _reportSaveError(error, note: 'Some changes could not be applied');
+        } else {
+          _pendingResponses.putIfAbsent(responseId, () => snapshot);
+          _handleRetryableFailure('response:$responseId', error);
+        }
       }
       rethrow;
     }
@@ -281,12 +400,18 @@ class InspectionState extends ChangeNotifier {
     final epoch = _epoch;
     try {
       await updateComment(comment, inspectionId: inspectionId);
+      if (_pendingComment == null) _unpersist('comment', inspectionId);
       _clearSaveError();
     } catch (error) {
       if (epoch == _epoch) {
-        _pendingComment ??= comment;
-        _pendingCommentInspectionId ??= inspectionId;
-        _reportSaveError(error);
+        if (_isPermanent(error)) {
+          _unpersist('comment', inspectionId);
+          _reportSaveError(error, note: 'Some changes could not be applied');
+        } else {
+          _pendingComment ??= comment;
+          _pendingCommentInspectionId ??= inspectionId;
+          _handleRetryableFailure('comment', error);
+        }
       }
       rethrow;
     }
@@ -303,8 +428,9 @@ class InspectionState extends ChangeNotifier {
     return future;
   }
 
-  void _reportSaveError(Object error) {
-    saveError = error.toString();
+  void _reportSaveError(Object error, {String? note, bool willRetry = false}) {
+    saveError = note == null ? error.toString() : '$note: $error';
+    saveErrorWillRetry = willRetry;
     notifyListeners();
   }
 
@@ -312,8 +438,135 @@ class InspectionState extends ChangeNotifier {
     if (saveError == null) return;
     if (_pendingResponses.isEmpty && _pendingComment == null) {
       saveError = null;
+      saveErrorWillRetry = false;
       notifyListeners();
     }
+  }
+
+  void _handleRetryableFailure(String key, Object error) {
+    final retry = _isRetryable(error);
+    if (retry) {
+      _stuck.remove(key);
+      _ensureRetryTimer();
+    } else {
+      _stuck.add(key);
+    }
+    _reportSaveError(error, willRetry: retry);
+  }
+
+  /// While edits are waiting because the connection failed, try again by
+  /// itself so the inspector does not have to keep pressing Retry.
+  void _ensureRetryTimer() {
+    _retryTimer ??= Timer.periodic(retryInterval, (_) => _retryTick());
+  }
+
+  void _retryTick() {
+    final waiting =
+        _pendingResponses.keys.any((id) => !_stuck.contains('response:$id')) ||
+            (_pendingComment != null && !_stuck.contains('comment'));
+    if (!waiting) {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      return;
+    }
+    if (_inFlight.isNotEmpty) return;
+    flushPendingSaves(includeStuck: false).catchError((Object _) {});
+  }
+
+  // --- keeping unsent edits on the device ---
+
+  void _persist(
+      String kind, int key, int inspectionId, Map<String, dynamic> payload) {
+    drafts.savePending(kind, key, inspectionId, payload).catchError((Object e) {
+      debugPrint('Saving pending edit failed: $e');
+    });
+  }
+
+  void _unpersist(String kind, int key) {
+    drafts.deletePending(kind, key).catchError((Object e) {
+      debugPrint('Removing pending edit failed: $e');
+    });
+  }
+
+  /// Called once the signed-in user is known. Local data left by a different
+  /// user is discarded; the user's own unsent edits are loaded and sent.
+  Future<void> attachToUser(int userId) async {
+    try {
+      final owner = await drafts.owner();
+      if (owner != null && owner != userId) await drafts.clearAll();
+      await drafts.setOwner(userId);
+      await restorePendingSaves();
+      await loadLocalDrafts();
+    } catch (error) {
+      debugPrint('Restoring local data failed: $error');
+    }
+  }
+
+  /// Loads the edits that were still unsent when the app was last closed.
+  Future<void> restorePendingSaves() async {
+    final epoch = _epoch;
+    final saved = await drafts.loadPending();
+    if (epoch != _epoch) return;
+
+    // Oldest first, so a later edit of the same response wins.
+    for (final item in saved.where((item) => item.kind == 'response')) {
+      _pendingResponses.putIfAbsent(item.key,
+          () => _ResponseSnapshot.fromJson(item.inspectionId, item.payload));
+    }
+    // Only one inspection comment is queued at a time; keep the newest.
+    final comments = saved.where((item) => item.kind == 'comment');
+    if (_pendingComment == null && comments.isNotEmpty) {
+      final newest = comments.last;
+      _pendingComment = newest.payload['comment'] as String? ?? '';
+      _pendingCommentInspectionId = newest.inspectionId;
+    }
+
+    if (_pendingResponses.isNotEmpty || _pendingComment != null) {
+      notifyListeners();
+      _ensureRetryTimer();
+      flushPendingSaves(includeStuck: false).catchError((Object _) {});
+    }
+  }
+
+  Future<void> loadLocalDrafts() async {
+    try {
+      final saved = await drafts.loadDrafts();
+      localDrafts = [
+        for (final draft in saved)
+          if (openStatuses.contains(draft['status'])) draft,
+      ];
+    } catch (error) {
+      debugPrint('Reading drafts failed: $error');
+      localDrafts = [];
+    }
+    notifyListeners();
+  }
+
+  /// Reloads every list, remembering (not throwing) why it failed so the app
+  /// can say "no connection" instead of silently showing empty lists.
+  Future<void> refreshAll({bool includeDashboard = false}) async {
+    Object? failure;
+    await Future.wait([
+      for (final load in [
+        loadStores,
+        loadTemplates,
+        loadHistory,
+        loadActions,
+        if (includeDashboard) loadDashboard,
+      ])
+        () async {
+          try {
+            await load();
+          } catch (error) {
+            failure ??= error;
+          }
+        }(),
+    ]);
+    final error = failure;
+    loadError = error == null
+        ? null
+        : (error is ApiException ? error.message : error.toString());
+    await loadLocalDrafts();
   }
 
   @override
@@ -322,6 +575,7 @@ class InspectionState extends ChangeNotifier {
       timer.cancel();
     }
     _commentTimer?.cancel();
+    _retryTimer?.cancel();
     super.dispose();
   }
 
@@ -349,9 +603,7 @@ class InspectionState extends ChangeNotifier {
       'inspection': {'general_comment': comment, 'comment': comment},
     });
     if (activeInspection?['id'] != targetInspectionId) return;
-    activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await _saveDraft(targetInspectionId, activeInspection!);
-    notifyListeners();
+    await _activate(payload['inspection'] as Map<String, dynamic>);
   }
 
   Future<void> submit(String comment) async {
@@ -360,6 +612,7 @@ class InspectionState extends ChangeNotifier {
     _commentTimer?.cancel();
     _commentTimer = null;
     _pendingComment = null;
+    _unpersist('comment', inspectionId);
     try {
       await flushPendingSaves();
     } catch (error) {
@@ -376,9 +629,7 @@ class InspectionState extends ChangeNotifier {
 
   Future<void> reloadInspection(int inspectionId) async {
     final payload = await apiClient.get('/inspections/$inspectionId');
-    activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await _saveDraft(inspectionId, activeInspection!);
-    notifyListeners();
+    await _activate(payload['inspection'] as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> loadInspectionDetail(int inspectionId) async {

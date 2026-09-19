@@ -29,6 +29,7 @@ class RecordingApiClient extends ApiClient {
   /// What GET /inspections/:id returns.
   Map<String, dynamic> inspectionPayload = {'id': 7, 'responses': []};
   Object? failPatchesWith;
+  final failPatchesByPath = <String, Object>{};
   Completer<void>? holdNextPatch;
 
   List<Map<String, dynamic>> patchBodies(String path) => [
@@ -68,7 +69,8 @@ class RecordingApiClient extends ApiClient {
     final hold = holdNextPatch;
     holdNextPatch = null;
     if (hold != null) await hold.future;
-    if (failPatchesWith != null) throw failPatchesWith!;
+    final failure = failPatchesByPath[path] ?? failPatchesWith;
+    if (failure != null) throw failure;
     final actionMatch = RegExp(r'^/corrective_actions/(\d+)$').firstMatch(path);
     if (actionMatch != null) {
       final id = int.parse(actionMatch.group(1)!);
@@ -130,19 +132,68 @@ class RecordingApiClient extends ApiClient {
   }
 }
 
-class NoDraftStorage extends LocalDraftStorage {
+/// A working in-memory stand-in for [LocalDraftStorage]. Keep one instance
+/// across two [InspectionState]s to simulate the app being restarted.
+class MemoryDraftStorage extends LocalDraftStorage {
   int clearAllCalls = 0;
+  final drafts = <int, Map<String, dynamic>>{};
+  final pending = <String, PendingSave>{};
+  int? ownerId;
 
   @override
   Future<void> saveDraft(
-      int inspectionId, Map<String, dynamic> payload) async {}
+          int inspectionId, Map<String, dynamic> payload) async =>
+      drafts[inspectionId] = payload;
 
   @override
-  Future<void> clearDraft(int inspectionId) async {}
+  Future<Map<String, dynamic>?> loadDraft(int inspectionId) async =>
+      drafts[inspectionId];
 
   @override
-  Future<void> clearAll() async => clearAllCalls++;
+  Future<List<Map<String, dynamic>>> loadDrafts() async =>
+      drafts.values.toList().reversed.toList();
+
+  @override
+  Future<void> clearDraft(int inspectionId) async =>
+      drafts.remove(inspectionId);
+
+  @override
+  Future<void> savePending(String kind, int key, int inspectionId,
+      Map<String, dynamic> payload) async {
+    // Re-inserting moves the entry to the end, like an updated_at ordering.
+    pending.remove('$kind:$key');
+    pending['$kind:$key'] = PendingSave(
+      kind: kind,
+      key: key,
+      inspectionId: inspectionId,
+      payload: payload,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> deletePending(String kind, int key) async =>
+      pending.remove('$kind:$key');
+
+  @override
+  Future<List<PendingSave>> loadPending() async => pending.values.toList();
+
+  @override
+  Future<int?> owner() async => ownerId;
+
+  @override
+  Future<void> setOwner(int userId) async => ownerId = userId;
+
+  @override
+  Future<void> clearAll() async {
+    clearAllCalls++;
+    drafts.clear();
+    pending.clear();
+    ownerId = null;
+  }
 }
+
+typedef NoDraftStorage = MemoryDraftStorage;
 
 /// Returns a 1x1 PNG instead of opening the camera or gallery.
 class FakePhotoPicker extends PhotoPickerService {
@@ -163,4 +214,20 @@ class FakePhotoPicker extends PhotoPickerService {
 
   @override
   Future<XFile?> choosePhoto() async => _photo();
+}
+
+/// Builds stored edits for tests that need to pre-fill the storage.
+class PendingSaveFake {
+  static PendingSave response(int responseId, int inspectionId) => PendingSave(
+        kind: 'response',
+        key: responseId,
+        inspectionId: inspectionId,
+        payload: const {
+          'score': 4,
+          'not_applicable': false,
+          'passed': false,
+          'comment': null,
+        },
+        updatedAt: DateTime(2026, 1, 1),
+      );
 }

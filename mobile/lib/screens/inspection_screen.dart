@@ -62,7 +62,9 @@ class _InspectionScreenState extends State<InspectionScreen> {
         children: [
           if (inspections.saveError != null) ...[
             _SaveErrorBanner(
-              message: inspections.saveError!,
+              message: inspections.saveErrorWillRetry
+                  ? '${inspections.saveError!}. Your changes are kept on this device and will be sent when the connection is back.'
+                  : inspections.saveError!,
               onRetry: () => inspections.flushPendingSaves().ignore(),
             ),
             const SizedBox(height: 12),
