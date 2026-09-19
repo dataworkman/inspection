@@ -1,7 +1,7 @@
 class User < ApplicationRecord
   has_secure_password
 
-  belongs_to :organization, optional: true
+  belongs_to :organization
   has_many :inspections, dependent: :restrict_with_exception
   has_many :api_tokens, dependent: :delete_all
 

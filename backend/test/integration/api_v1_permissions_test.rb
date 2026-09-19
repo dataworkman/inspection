@@ -38,15 +38,6 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     assert_equal "account is deactivated", response.parsed_body["error"]
   end
 
-  test "users without an organization are rejected" do
-    orphan = User.create!(name: "Orphan", email: "orphan@example.com", password: "password123", role: "admin")
-    Store.create!(name: "Orphan Store", store_code: "OR-1")
-
-    get "/api/v1/stores", headers: auth_headers(login(orphan))
-
-    assert_response :forbidden
-  end
-
   test "an admin of another organization cannot see or change an inspection" do
     inspection_id, response_id = start_inspection(login(@inspector))
     other_token = login(@other_admin)

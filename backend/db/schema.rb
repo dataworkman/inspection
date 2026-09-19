@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_19_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_19_140000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -139,7 +139,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_19_130000) do
     t.text "general_comment"
     t.integer "inspection_template_id"
     t.integer "inspector_id"
-    t.integer "organization_id"
+    t.integer "organization_id", null: false
     t.decimal "score", precision: 5, scale: 2
     t.datetime "started_at"
     t.string "status", default: "draft", null: false
@@ -169,7 +169,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_19_130000) do
     t.string "address"
     t.datetime "created_at", null: false
     t.string "name", null: false
-    t.integer "organization_id"
+    t.integer "organization_id", null: false
     t.string "phone"
     t.string "store_code", null: false
     t.datetime "updated_at", null: false
@@ -181,7 +181,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_19_130000) do
     t.datetime "created_at", null: false
     t.string "email", null: false
     t.string "name", null: false
-    t.integer "organization_id"
+    t.integer "organization_id", null: false
     t.string "password_digest", null: false
     t.string "role", default: "inspector", null: false
     t.datetime "updated_at", null: false

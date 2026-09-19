@@ -2,7 +2,7 @@ class Inspection < ApplicationRecord
   STATUSES = %w[draft in_progress completed submitted].freeze
   EDITABLE_STATUSES = %w[draft in_progress completed].freeze
 
-  belongs_to :organization, optional: true
+  belongs_to :organization
   belongs_to :store
   belongs_to :user
   belongs_to :inspector, class_name: "User", optional: true
@@ -12,6 +12,7 @@ class Inspection < ApplicationRecord
   has_many :corrective_actions, dependent: :destroy
 
   validates :status, inclusion: { in: STATUSES }
+  validate :parts_belong_to_the_same_organization
 
   scope :recent, -> { order(created_at: :desc) }
   scope :submitted, -> { where(status: "submitted") }
@@ -139,6 +140,22 @@ class Inspection < ApplicationRecord
   end
 
   private
+
+  # A bug elsewhere must not be able to tie an inspection to another
+  # organization's store, template or people.
+  def parts_belong_to_the_same_organization
+    {
+      store: store,
+      inspection_template: inspection_template,
+      user: user,
+      inspector: inspector
+    }.each do |name, record|
+      next if record.nil? || organization_id.nil? || record.organization_id == organization_id
+
+      errors.add(name, "must belong to the same organization")
+    end
+  end
+
 
   def summarize_titles(responses, limit: 5)
     titles = responses.map { |response| response.inspection_question.title }

@@ -1,5 +1,5 @@
 class Store < ApplicationRecord
-  belongs_to :organization, optional: true
+  belongs_to :organization
   has_many :inspections, dependent: :restrict_with_exception
   has_many :corrective_actions, dependent: :restrict_with_exception
 

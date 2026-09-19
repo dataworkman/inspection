@@ -15,7 +15,6 @@ class ApplicationController < ActionController::API
 
     return render_unauthorized("invalid or missing token") if user.nil?
     return render_unauthorized("account is deactivated") unless user.active?
-    return render json: { error: "user is not assigned to an organization" }, status: :forbidden if user.organization_id.nil?
 
     @current_api_token = token
     @current_user = user
