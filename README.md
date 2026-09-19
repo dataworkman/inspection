@@ -82,6 +82,8 @@ mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://<host>
 | `API_TOKEN_TTL_DAYS` | backend | Lifetime of a login session (default 30). |
 | `CORS_ORIGINS` | backend | Comma-separated browser origins allowed to call the API. Unset means *any* origin in development/test and *none* in production (native apps are not affected). |
 | `SEED_DEMO_DATA` | backend | Set to `1` to allow `db:seed` to create the demo data in production. |
+| `PHOTO_MAX_MB` | backend | Largest accepted photo (default 15). Uploads must be real JPEG, PNG, GIF, WebP or HEIC images; the file contents are checked, not just the name. |
+| `PHOTO_URL_TTL_MINUTES` | backend | How long the signed photo links in API responses stay valid (default 60). Every response carries fresh links. |
 | `SQLITE_DIR` | backend | Directory of the production SQLite files (default `storage`); put it on a persistent volume. |
 
 ## Demo Login Accounts
