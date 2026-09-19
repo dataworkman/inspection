@@ -279,6 +279,10 @@ void main() {
       await tester.tap(find.byTooltip('Add photo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Photo library'));
+      await tester.pump();
+      // The annotation screen decodes the photo, which takes real time.
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 300)));
       await tester.pumpAndSettle();
       expect(find.text('Annotate photo'), findsOneWidget);
     }

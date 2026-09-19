@@ -46,7 +46,8 @@ class AnnotationState extends ChangeNotifier {
   final List<AnnotationMark> marks = [];
   final List<AnnotationMark> _redo = [];
   AnnotationTool tool = AnnotationTool.pen;
-  Color color = Colors.redAccent;
+  // Matches the first swatch of the toolbar so it starts out selected.
+  Color color = const Color(0xffe53935);
   double strokeWidth = 3;
   AnnotationMark? draft;
 
@@ -149,8 +150,14 @@ class AnnotationState extends ChangeNotifier {
     notifyListeners();
   }
 
-  String toPayload() =>
-      jsonEncode({'marks': marks.map((mark) => mark.toJson()).toList()});
+  /// Marks are fractions (0..1) of the photo's width and height, so they can
+  /// be replayed on the picture at any size. [imageSize] records the pixel size
+  /// of the photo they refer to.
+  String toPayload({Size? imageSize}) => jsonEncode({
+        'marks': marks.map((mark) => mark.toJson()).toList(),
+        if (imageSize != null)
+          'image': {'width': imageSize.width, 'height': imageSize.height},
+      });
 
   Offset _normalized(Offset position, Size imageSize) {
     return Offset(
