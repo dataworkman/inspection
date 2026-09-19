@@ -3,21 +3,41 @@ class ApplicationController < ActionController::API
 
   rescue_from ActiveRecord::RecordNotFound, with: :not_found
   rescue_from ActiveRecord::RecordInvalid, with: :unprocessable_entity
+  rescue_from ActiveRecord::RecordNotUnique, with: :conflict
 
   private
 
   attr_reader :current_user
 
   def authenticate_user!
-    authenticate_or_request_with_http_token do |token, _options|
-      @current_user = User.find_by(api_token: token)
-    end
+    user = authenticate_with_http_token { |token, _options| token.present? ? User.find_by(api_token: token) : nil }
+
+    return render_unauthorized("invalid or missing token") if user.nil?
+    return render_unauthorized("account is deactivated") unless user.active?
+    return render json: { error: "user is not assigned to an organization" }, status: :forbidden if user.organization_id.nil?
+
+    @current_user = user
+  end
+
+  def render_unauthorized(message)
+    headers["WWW-Authenticate"] = 'Token realm="Application"'
+    render json: { error: message }, status: :unauthorized
   end
 
   def require_admin!
-    return true if current_user&.admin?
+    require_role!(:admin, message: "admin role required")
+  end
 
-    render json: { error: "admin role required" }, status: :forbidden
+  # Admins and inspectors run inspections. Store managers can only work on
+  # corrective actions that were assigned to them.
+  def require_inspector!
+    require_role!(:admin, :inspector, message: "inspector role required")
+  end
+
+  def require_role!(*roles, message:)
+    return true if roles.include?(current_user&.role&.to_sym)
+
+    render json: { error: message }, status: :forbidden
     false
   end
 
@@ -27,6 +47,12 @@ class ApplicationController < ActionController::API
 
   def not_found
     render json: { error: "not found" }, status: :not_found
+  end
+
+  # Uniqueness is also enforced by database indexes, so a concurrent request
+  # that slips past the model validation ends up here instead of as a 500.
+  def conflict
+    render json: { error: "already exists" }, status: :conflict
   end
 
   def unprocessable_entity(error)

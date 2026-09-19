@@ -11,6 +11,7 @@ class CorrectiveAction < ApplicationRecord
   validates :title, presence: true
   validates :severity, inclusion: { in: SEVERITIES }
   validates :status, inclusion: { in: STATUSES }
+  validate :assignee_in_same_organization
 
   scope :open_status, -> { where.not(status: [ "Resolved", "Verified" ]) }
   scope :critical, -> { where(severity: "Critical") }
@@ -27,5 +28,13 @@ class CorrectiveAction < ApplicationRecord
       store: store.as_api_json,
       assigned_to: assigned_to&.as_api_json
     }
+  end
+
+  private
+
+  def assignee_in_same_organization
+    return if assigned_to.blank? || assigned_to.organization_id == organization_id
+
+    errors.add(:assigned_to, "must belong to the same organization")
   end
 end

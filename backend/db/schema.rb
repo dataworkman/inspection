@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_19_120000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -37,25 +37,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
     t.bigint "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
-  end
-
-  create_table "checklist_items", force: :cascade do |t|
-    t.string "category", null: false
-    t.integer "checklist_template_id", null: false
-    t.datetime "created_at", null: false
-    t.integer "position", default: 0, null: false
-    t.string "title", null: false
-    t.datetime "updated_at", null: false
-    t.integer "weight", default: 1, null: false
-    t.index ["checklist_template_id", "position"], name: "index_checklist_items_on_checklist_template_id_and_position"
-    t.index ["checklist_template_id"], name: "index_checklist_items_on_checklist_template_id"
-  end
-
-  create_table "checklist_templates", force: :cascade do |t|
-    t.boolean "active", default: true, null: false
-    t.datetime "created_at", null: false
-    t.string "title", null: false
-    t.datetime "updated_at", null: false
   end
 
   create_table "corrective_actions", force: :cascade do |t|
@@ -116,7 +97,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
   end
 
   create_table "inspection_responses", force: :cascade do |t|
-    t.integer "checklist_item_id"
     t.text "comment"
     t.datetime "created_at", null: false
     t.integer "inspection_id", null: false
@@ -125,8 +105,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
     t.boolean "passed"
     t.integer "score", default: 0, null: false
     t.datetime "updated_at", null: false
-    t.index ["checklist_item_id"], name: "index_inspection_responses_on_checklist_item_id"
-    t.index ["inspection_id", "checklist_item_id"], name: "index_responses_on_inspection_and_item", unique: true
+    t.index ["inspection_id", "inspection_question_id"], name: "index_responses_on_inspection_and_question", unique: true
     t.index ["inspection_id"], name: "index_inspection_responses_on_inspection_id"
     t.index ["inspection_question_id"], name: "index_inspection_responses_on_inspection_question_id"
   end
@@ -183,8 +162,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
     t.string "phone"
     t.string "store_code", null: false
     t.datetime "updated_at", null: false
-    t.index ["organization_id"], name: "index_stores_on_organization_id"
-    t.index ["store_code"], name: "index_stores_on_store_code", unique: true
+    t.index ["organization_id", "store_code"], name: "index_stores_on_organization_id_and_store_code", unique: true
   end
 
   create_table "users", force: :cascade do |t|
@@ -204,7 +182,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
-  add_foreign_key "checklist_items", "checklist_templates"
   add_foreign_key "corrective_actions", "inspection_responses"
   add_foreign_key "corrective_actions", "inspections"
   add_foreign_key "corrective_actions", "organizations"
@@ -214,7 +191,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_030000) do
   add_foreign_key "inspection_photos", "inspection_responses"
   add_foreign_key "inspection_photos", "inspections"
   add_foreign_key "inspection_questions", "inspection_categories"
-  add_foreign_key "inspection_responses", "checklist_items"
   add_foreign_key "inspection_responses", "inspection_questions"
   add_foreign_key "inspection_responses", "inspections"
   add_foreign_key "inspection_templates", "organizations"

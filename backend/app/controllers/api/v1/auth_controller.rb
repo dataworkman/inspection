@@ -5,6 +5,8 @@ module Api
         user = User.find_by(email: login_params[:email].to_s.downcase)
 
         if user&.authenticate(login_params[:password])
+          return render json: { error: "account is deactivated" }, status: :unauthorized unless user.active?
+
           user.rotate_api_token!
           render json: { token: user.api_token, user: user.as_api_json }
         else
