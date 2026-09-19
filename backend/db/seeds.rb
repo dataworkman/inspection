@@ -1,3 +1,11 @@
+# Demo data: an organization, three stores, a template and accounts with the
+# well-known password "password123". It must never end up in production, so it
+# is skipped there unless explicitly requested (e.g. for a staging demo).
+if Rails.env.production? && ENV["SEED_DEMO_DATA"] != "1"
+  puts "Skipping demo seed data in production (set SEED_DEMO_DATA=1 to force it)."
+  return
+end
+
 organization = Organization.find_or_create_by!(name: "Demo Bakery Group")
 
 admin = User.find_or_create_by!(email: "admin@bakery-inspection.test") do |user|
