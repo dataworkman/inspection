@@ -17,6 +17,11 @@ class RecordingApiClient extends ApiClient {
   final uploads =
       <({int responseId, bool annotated, String? annotationJson})>[];
 
+  /// Corrective actions the "server" holds (GET /corrective_actions).
+  List<Map<String, dynamic>> actionsPayload = [];
+  Object? failPostsWith;
+  Completer<void>? holdNextPost;
+
   /// What GET /inspections/:id returns.
   Map<String, dynamic> inspectionPayload = {'id': 7, 'responses': []};
   Object? failPatchesWith;
@@ -32,6 +37,9 @@ class RecordingApiClient extends ApiClient {
     requests.add('GET $path');
     bodies.add(const {});
     if (path == '/inspections') return {'inspections': []};
+    if (path == '/corrective_actions') {
+      return {'corrective_actions': actionsPayload};
+    }
     return {'inspection': inspectionPayload};
   }
 
@@ -44,6 +52,16 @@ class RecordingApiClient extends ApiClient {
     holdNextPatch = null;
     if (hold != null) await hold.future;
     if (failPatchesWith != null) throw failPatchesWith!;
+    final actionMatch = RegExp(r'^/corrective_actions/(\d+)$').firstMatch(path);
+    if (actionMatch != null) {
+      final id = int.parse(actionMatch.group(1)!);
+      final index = actionsPayload.indexWhere((action) => action['id'] == id);
+      actionsPayload[index] = {
+        ...actionsPayload[index],
+        ...(body['corrective_action'] as Map<String, dynamic>),
+      };
+      return {'corrective_action': actionsPayload[index]};
+    }
     return {
       'inspection': {'id': 7, 'responses': []},
     };
@@ -74,6 +92,20 @@ class RecordingApiClient extends ApiClient {
       String path, Map<String, dynamic> body) async {
     requests.add('POST $path');
     bodies.add(body);
+    final hold = holdNextPost;
+    holdNextPost = null;
+    if (hold != null) await hold.future;
+    if (failPostsWith != null) throw failPostsWith!;
+    if (path == '/corrective_actions') {
+      final input = body['corrective_action'] as Map<String, dynamic>;
+      final created = {
+        'id': actionsPayload.length + 100,
+        ...input,
+        'store': {'name': 'Downtown'},
+      };
+      actionsPayload.insert(0, created);
+      return {'corrective_action': created};
+    }
     return {
       'inspection': {'id': 7, 'status': 'submitted'},
     };

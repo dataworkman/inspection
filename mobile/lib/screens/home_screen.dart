@@ -76,27 +76,99 @@ class ActionsView extends StatelessWidget {
     final inspections = context.watch<InspectionState>();
     return RefreshIndicator(
       onRefresh: inspections.loadActions,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-        itemCount: inspections.actions.length,
-        itemBuilder: (context, index) {
-          final action = inspections.actions[index] as Map<String, dynamic>;
-          final store = action['store'] as Map<String, dynamic>;
-          return _ContentCard(
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: _StatusIcon(
-                icon: Icons.report_problem,
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              title: Text(action['title'] as String,
-                  style: Theme.of(context).textTheme.titleMedium),
-              subtitle: Text(
-                  '${store['name']} - ${action['severity']} - ${action['status']}'),
-              trailing: _Pill(label: action['status'].toString()),
+      child: inspections.actions.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(32),
+              children: const [
+                Center(child: Text('No corrective actions')),
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              itemCount: inspections.actions.length,
+              itemBuilder: (context, index) {
+                final action =
+                    inspections.actions[index] as Map<String, dynamic>;
+                final store = action['store'] as Map<String, dynamic>;
+                final due = action['due_date'];
+                return _ContentCard(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: _StatusIcon(
+                      icon: Icons.report_problem,
+                      color: Theme.of(context).colorScheme.tertiary,
+                    ),
+                    title: Text(action['title'] as String,
+                        style: Theme.of(context).textTheme.titleMedium),
+                    subtitle: Text(
+                        '${store['name']} - ${action['severity']}${due == null ? '' : ' - due $due'}'),
+                    trailing: _Pill(label: action['status'].toString()),
+                    onTap: () => _showActionSheet(context, action),
+                  ),
+                );
+              },
             ),
-          );
-        },
+    );
+  }
+
+  void _showActionSheet(BuildContext context, Map<String, dynamic> action) {
+    final inspections = context.read<InspectionState>();
+    final messenger = ScaffoldMessenger.of(context);
+    final allowed = correctiveActionStatusesFor(context.read<AuthState>().role);
+    final current = action['status'].toString();
+    final assignee = action['assigned_to'] as Map<String, dynamic>?;
+    final description = action['description']?.toString() ?? '';
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(action['title'] as String,
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text([
+                (action['store'] as Map<String, dynamic>)['name'],
+                action['severity'],
+                if (action['due_date'] != null) 'due ${action['due_date']}',
+                if (assignee != null) 'assigned to ${assignee['name']}',
+              ].join(' - ')),
+              if (description.isNotEmpty && description != action['title']) ...[
+                const SizedBox(height: 8),
+                Text(description),
+              ],
+              const Divider(height: 24),
+              Text('Set status',
+                  style: Theme.of(sheetContext).textTheme.titleSmall),
+              for (final status in allowed)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(status),
+                  trailing: status == current ? const Icon(Icons.check) : null,
+                  onTap: status == current
+                      ? null
+                      : () async {
+                          Navigator.of(sheetContext).pop();
+                          try {
+                            await inspections.updateActionStatus(
+                                action['id'] as int, status);
+                          } catch (error) {
+                            messenger.showSnackBar(SnackBar(
+                                content: Text(
+                                    'Could not update the action: $error')));
+                          }
+                        },
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

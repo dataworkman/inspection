@@ -10,6 +10,7 @@ import '../annotations/annotation_state.dart';
 import '../inspections/inspection_state.dart';
 import '../photos/photo_input_button.dart';
 import '../photos/photo_picker_service.dart';
+import 'corrective_action_dialog.dart';
 
 class InspectionScreen extends StatefulWidget {
   const InspectionScreen({super.key, this.photoPicker});
@@ -596,6 +597,7 @@ class _ResponseTileState extends State<ResponseTile> {
   late bool _notApplicable;
   late final int _maxScore =
       ((widget.response['max_score'] as num?) ?? 5).toInt().clamp(1, 100);
+  bool _creatingAction = false;
   final _comment = TextEditingController();
   final _commentFocus = FocusNode();
   bool _commentDirty = false;
@@ -628,6 +630,8 @@ class _ResponseTileState extends State<ResponseTile> {
 
   @override
   Widget build(BuildContext context) {
+    final existingActions = context.select<InspectionState, int>((state) =>
+        state.actionsForResponse(widget.response['id'] as int).length);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -725,14 +729,19 @@ class _ResponseTileState extends State<ResponseTile> {
                       icon: const Icon(Icons.add_a_photo),
                       tooltip: 'Add photo',
                     ),
-                  IconButton.filledTonal(
-                    onPressed: () =>
-                        context.read<InspectionState>().createAction(
-                              widget.response['id'] as int,
-                              widget.response['title'] as String,
-                            ),
-                    icon: const Icon(Icons.report_problem),
-                    tooltip: 'Add corrective action',
+                  Badge(
+                    isLabelVisible: existingActions > 0,
+                    label: Text('$existingActions'),
+                    child: IconButton.filledTonal(
+                      onPressed: _creatingAction ? null : _addAction,
+                      icon: _creatingAction
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.report_problem),
+                      tooltip: 'Add corrective action',
+                    ),
                   ),
                 ],
               ),
@@ -741,6 +750,32 @@ class _ResponseTileState extends State<ResponseTile> {
         ),
       ),
     );
+  }
+
+  Future<void> _addAction() async {
+    final inspections = context.read<InspectionState>();
+    final messenger = ScaffoldMessenger.of(context);
+    final draft = await showCorrectiveActionDialog(context,
+        initialTitle: widget.response['title'] as String);
+    if (draft == null || !mounted) return;
+
+    setState(() => _creatingAction = true);
+    try {
+      await inspections.createAction(
+        widget.response['id'] as int,
+        title: draft.title,
+        severity: draft.severity,
+        description: draft.description,
+        dueDate: draft.dueDate,
+      );
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Corrective action created')));
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Could not create corrective action: $error')));
+    } finally {
+      if (mounted) setState(() => _creatingAction = false);
+    }
   }
 
   void _save({bool immediate = false}) {

@@ -197,6 +197,21 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, @other_admin.email
   end
 
+  test "corrective actions identify their inspection and response and track completion" do
+    token = login(@inspector)
+    inspection_id, response_id = start_inspection(token)
+    action_id = create_action(token, inspection_id, response_id)
+
+    assert_equal [ inspection_id, response_id ], response.parsed_body["corrective_action"].values_at("inspection_id", "inspection_response_id")
+    assert_nil response.parsed_body.dig("corrective_action", "completed_at")
+
+    patch "/api/v1/corrective_actions/#{action_id}", headers: auth_headers(token), params: { corrective_action: { status: "Resolved" } }
+    assert response.parsed_body.dig("corrective_action", "completed_at").present?
+
+    patch "/api/v1/corrective_actions/#{action_id}", headers: auth_headers(token), params: { corrective_action: { status: "In Progress" } }
+    assert_nil response.parsed_body.dig("corrective_action", "completed_at")
+  end
+
   private
 
   def create_user(organization, role, email)

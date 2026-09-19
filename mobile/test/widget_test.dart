@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:store_inspection_mobile/api/api_client.dart';
+import 'package:store_inspection_mobile/auth/auth_state.dart';
 import 'package:store_inspection_mobile/drafts/local_draft_storage.dart';
 import 'package:store_inspection_mobile/inspections/inspection_state.dart';
 import 'package:store_inspection_mobile/screens/home_screen.dart';
@@ -124,15 +127,19 @@ void main() {
           'not_applicable': false,
           'photos': [],
         };
+    final state = InspectionState(RecordingApiClient(), NoDraftStorage());
     Future<void> pumpTile(Map<String, dynamic> data) => tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: SingleChildScrollView(
-                child: ResponseTile(
-                  key: ValueKey(data['score']),
-                  response: data,
-                  onPhoto: (_, __) async {},
-                  onPhotoSelected: (_, __, ___) async {},
+          ChangeNotifierProvider.value(
+            value: state,
+            child: MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: ResponseTile(
+                    key: ValueKey(data['score']),
+                    response: data,
+                    onPhoto: (_, __) async {},
+                    onPhotoSelected: (_, __, ___) async {},
+                  ),
                 ),
               ),
             ),
@@ -297,6 +304,237 @@ void main() {
       expect(api.uploads.single.responseId, 1);
       expect(api.uploads.single.annotated, isFalse);
       expect(api.uploads.single.annotationJson, '{"marks":[]}');
+    });
+  });
+
+  group('corrective actions', () {
+    late RecordingApiClient api;
+    late InspectionState state;
+
+    Future<void> pumpTile(WidgetTester tester) async {
+      api = RecordingApiClient();
+      state = InspectionState(api, NoDraftStorage())
+        ..activeInspection = {'id': 7, 'responses': []};
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ResponseTile(
+                  response: const {
+                    'id': 1,
+                    'title': 'Floor cleanliness',
+                    'score': 2,
+                    'max_score': 5,
+                    'not_applicable': false,
+                    'photos': [],
+                  },
+                  onPhoto: (_, __) async {},
+                  onPhotoSelected: (_, __, ___) async {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Future<void> openDialog(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Add corrective action'));
+      await tester.pumpAndSettle();
+      expect(find.text('New corrective action'), findsOneWidget);
+    }
+
+    IconButton actionButton(WidgetTester tester) =>
+        tester.widget<IconButton>(find.descendant(
+            of: find.byType(Badge), matching: find.byType(IconButton)));
+
+    testWidgets('creates an action with the chosen details', (tester) async {
+      await pumpTile(tester);
+      await openDialog(tester);
+
+      expect(find.widgetWithText(TextFormField, 'Floor cleanliness'),
+          findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Floor cleanliness'),
+          'Re-mop the floor');
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Critical').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      final body = api.bodies[api.requests.indexOf('POST /corrective_actions')]
+          ['corrective_action'] as Map<String, dynamic>;
+      expect(body['title'], 'Re-mop the floor');
+      expect(body['severity'], 'Critical');
+      expect(body['inspection_id'], 7);
+      expect(body['inspection_response_id'], 1);
+      expect(body.containsKey('due_date'), isFalse);
+      expect(find.text('Corrective action created'), findsOneWidget);
+      expect(state.actionsForResponse(1), hasLength(1));
+      expect(find.descendant(of: find.byType(Badge), matching: find.text('1')),
+          findsOneWidget);
+    });
+
+    testWidgets('requires a title', (tester) async {
+      await pumpTile(tester);
+      await openDialog(tester);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Floor cleanliness'), '  ');
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter a title'), findsOneWidget);
+      expect(api.requests, isNot(contains('POST /corrective_actions')));
+    });
+
+    testWidgets('cancelling creates nothing', (tester) async {
+      await pumpTile(tester);
+      await openDialog(tester);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(api.requests, isEmpty);
+      expect(actionButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets(
+        'the button is disabled while creating, so a double tap cannot duplicate',
+        (tester) async {
+      await pumpTile(tester);
+      final gate = Completer<void>();
+      api.holdNextPost = gate;
+      await openDialog(tester);
+      await tester.tap(find.text('Create'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(actionButton(tester).onPressed, isNull);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(actionButton(tester).onPressed, isNotNull);
+      expect(api.requests.where((r) => r == 'POST /corrective_actions'),
+          hasLength(1));
+    });
+
+    testWidgets('shows the server error and creates nothing on failure',
+        (tester) async {
+      await pumpTile(tester);
+      api.failPostsWith = ApiException('Severity is invalid', 422);
+      await openDialog(tester);
+
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Could not create corrective action: Severity is invalid'),
+          findsOneWidget);
+      expect(state.actionsForResponse(1), isEmpty);
+      expect(actionButton(tester).onPressed, isNotNull);
+    });
+  });
+
+  group('corrective action list', () {
+    late RecordingApiClient api;
+
+    Future<void> pumpActions(WidgetTester tester, String role) async {
+      api = RecordingApiClient()
+        ..actionsPayload = [
+          {
+            'id': 5,
+            'title': 'Repair display case seal',
+            'description': 'Seal is damaged.',
+            'severity': 'High',
+            'status': 'Open',
+            'due_date': '2026-10-01',
+            'store': {'name': 'Downtown'},
+            'assigned_to': {'name': 'Manager'},
+          },
+        ];
+      final state = InspectionState(api, NoDraftStorage());
+      await state.loadActions();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: state),
+            ChangeNotifierProvider(
+                create: (_) => AuthState(api)..user = {'role': role}),
+          ],
+          child: const MaterialApp(home: Scaffold(body: ActionsView())),
+        ),
+      );
+    }
+
+    Finder inSheet(String text) => find.descendant(
+        of: find.byType(BottomSheet), matching: find.text(text));
+
+    testWidgets('an inspector can set any status', (tester) async {
+      await pumpActions(tester, 'inspector');
+
+      await tester.tap(find.text('Repair display case seal'));
+      await tester.pumpAndSettle();
+
+      expect(inSheet('Seal is damaged.'), findsOneWidget);
+      for (final status in ['Open', 'In Progress', 'Resolved', 'Verified']) {
+        expect(inSheet(status), findsOneWidget, reason: status);
+      }
+
+      await tester.tap(inSheet('Resolved'));
+      await tester.pumpAndSettle();
+
+      expect(
+          api.patchBodies('/corrective_actions/5').single['corrective_action'],
+          {'status': 'Resolved'});
+      expect(find.text('Resolved'), findsOneWidget);
+    });
+
+    testWidgets('a store manager can only choose In Progress or Resolved',
+        (tester) async {
+      await pumpActions(tester, 'store_manager');
+
+      await tester.tap(find.text('Repair display case seal'));
+      await tester.pumpAndSettle();
+
+      expect(inSheet('In Progress'), findsOneWidget);
+      expect(inSheet('Resolved'), findsOneWidget);
+      expect(inSheet('Verified'), findsNothing);
+      expect(inSheet('Open'), findsNothing);
+    });
+
+    testWidgets('a failed update is reported and the list is unchanged',
+        (tester) async {
+      await pumpActions(tester, 'admin');
+      api.failPatchesWith = ApiException('not found', 404);
+
+      await tester.tap(find.text('Repair display case seal'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(inSheet('Verified'));
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet('Verified'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Could not update the action: not found'), findsOneWidget);
+      expect(find.text('Open'), findsOneWidget);
+    });
+
+    testWidgets('an empty list says so', (tester) async {
+      api = RecordingApiClient();
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: InspectionState(api, NoDraftStorage()),
+          child: const MaterialApp(home: Scaffold(body: ActionsView())),
+        ),
+      );
+
+      expect(find.text('No corrective actions'), findsOneWidget);
     });
   });
 }

@@ -6,6 +6,22 @@ import 'package:image_picker/image_picker.dart';
 import '../api/api_client.dart';
 import '../drafts/local_draft_storage.dart';
 
+const correctiveActionSeverities = ['Low', 'Medium', 'High', 'Critical'];
+const correctiveActionStatuses = [
+  'Open',
+  'In Progress',
+  'Resolved',
+  'Verified'
+];
+
+/// Statuses a role may set. Mirrors the server: store managers can only move
+/// an action to In Progress or Resolved; closing it out is for admins and
+/// inspectors.
+List<String> correctiveActionStatusesFor(String? role) =>
+    role == 'store_manager'
+        ? const ['In Progress', 'Resolved']
+        : correctiveActionStatuses;
+
 class _ResponseSnapshot {
   const _ResponseSnapshot({
     required this.inspectionId,
@@ -321,20 +337,53 @@ class InspectionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createAction(int responseId, String title) async {
+  /// Actions already raised for one checklist response.
+  List<Map<String, dynamic>> actionsForResponse(int responseId) => [
+        for (final action in actions)
+          if ((action as Map<String, dynamic>)['inspection_response_id'] ==
+              responseId)
+            action,
+      ];
+
+  Future<Map<String, dynamic>> createAction(
+    int responseId, {
+    required String title,
+    required String severity,
+    String? description,
+    DateTime? dueDate,
+  }) async {
     final inspectionId = activeInspection!['id'] as int;
-    await apiClient.post('/corrective_actions', {
+    final payload = await apiClient.post('/corrective_actions', {
       'corrective_action': {
         'inspection_id': inspectionId,
         'inspection_response_id': responseId,
         'title': title,
-        'description': title,
-        'severity': 'High',
+        'description': description ?? title,
+        'severity': severity,
         'status': 'Open',
+        if (dueDate != null) 'due_date': _dateOnly(dueDate),
       },
     });
-    await loadActions();
+    final created = payload['corrective_action'] as Map<String, dynamic>;
+    actions = [created, ...actions];
+    notifyListeners();
+    return created;
   }
+
+  Future<void> updateActionStatus(int actionId, String status) async {
+    final payload = await apiClient.patch('/corrective_actions/$actionId', {
+      'corrective_action': {'status': status},
+    });
+    final updated = payload['corrective_action'] as Map<String, dynamic>;
+    actions = [
+      for (final action in actions)
+        (action as Map<String, dynamic>)['id'] == actionId ? updated : action,
+    ];
+    notifyListeners();
+  }
+
+  static String _dateOnly(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
   Future<void> _saveDraft(
       int inspectionId, Map<String, dynamic> payload) async {
