@@ -30,16 +30,16 @@ Map<String, dynamic> inspectionJson({
           'id': 1,
           'title': 'Floors',
           'score': 2,
+          'max_score': 5,
           'not_applicable': false,
-          'passed': false,
           'comment': null
         },
         {
           'id': 2,
           'title': 'Counters',
           'score': 3,
+          'max_score': 5,
           'not_applicable': false,
-          'passed': false,
           'comment': null
         },
       ],
@@ -67,13 +67,12 @@ void main() {
 
   void save(int responseId,
           {int score = 4,
-          bool passed = false,
+          bool notApplicable = false,
           String? comment,
           bool immediate = true}) =>
       state.scheduleResponseSave(responseId,
           score: score,
-          notApplicable: false,
-          passed: passed,
+          notApplicable: notApplicable,
           comment: comment,
           immediate: immediate);
 
@@ -117,7 +116,7 @@ void main() {
     test('a failed edit stays stored and is retried by itself', () {
       inFakeTime((async) {
         api.failPatchesWith = offline;
-        save(1, passed: true);
+        save(1, notApplicable: true);
         async.flushMicrotasks();
 
         expect(state.saveError, 'Cannot reach the server');
@@ -159,7 +158,7 @@ void main() {
     test('unsent edits are sent after the app is restarted', () {
       inFakeTime((async) {
         api.failPatchesWith = offline;
-        save(1, passed: true, comment: 'sticky');
+        save(1, notApplicable: true, comment: 'sticky');
         async.flushMicrotasks();
         state.dispose();
 
@@ -169,7 +168,7 @@ void main() {
 
         final saves = api.patchBodies('/inspection_responses/1');
         expect(saves, hasLength(1));
-        expect(saves.single['response']['passed'], isTrue);
+        expect(saves.single['response']['not_applicable'], isTrue);
         expect(saves.single['response']['comment'], 'sticky');
         expect(storage.pending, isEmpty);
         expect(storage.ownerId, 5);
@@ -335,7 +334,7 @@ void main() {
       inFakeTime((async) {
         storage.drafts[7] = inspectionJson();
         api.failPatchesWith = offline;
-        save(1, score: 5, passed: true, comment: 'fixed');
+        save(1, score: 5, comment: 'fixed');
         state.scheduleCommentSave('my note');
         async.flushMicrotasks();
         state.activeInspection = null;
@@ -348,7 +347,7 @@ void main() {
             .cast<Map<String, dynamic>>()
             .firstWhere((r) => r['id'] == 1);
         expect(floors['score'], 5);
-        expect(floors['passed'], isTrue);
+        expect(floors['passed'], isTrue, reason: '5 of 5 points');
         expect(floors['comment'], 'fixed');
         final counters = (state.activeInspection!['responses'] as List)
             .cast<Map<String, dynamic>>()
@@ -401,6 +400,48 @@ void main() {
 
         expect(error, isA<ApiException>());
         expect(state.activeInspection, isNull);
+      });
+    });
+  });
+
+  group('the item result shown over unsent edits', () {
+    /// Response 1 as it appears after an offline resume with [edit] queued.
+    Map<String, dynamic> resumedResponse(
+        FakeAsync async, void Function() edit) {
+      storage.drafts[7] = inspectionJson();
+      api.failPatchesWith = offline;
+      edit();
+      async.flushMicrotasks();
+      state.activeInspection = null;
+      api.failGetsWith = offline;
+      state.resumeInspection(7);
+      async.flushMicrotasks();
+      return (state.activeInspection!['responses'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((r) => r['id'] == 1);
+    }
+
+    test('follows the same 70 percent rule as the server', () {
+      inFakeTime((async) {
+        expect(
+            resumedResponse(async, () => save(1, score: 4))['passed'], isTrue);
+      });
+      inFakeTime((async) {
+        expect(
+            resumedResponse(async, () => save(1, score: 3))['passed'], isFalse);
+      });
+    });
+
+    test('is empty for N/A and unanswered items', () {
+      inFakeTime((async) {
+        expect(
+            resumedResponse(
+                async, () => save(1, notApplicable: true))['passed'],
+            isNull);
+      });
+      inFakeTime((async) {
+        expect(
+            resumedResponse(async, () => save(1, score: 0))['passed'], isNull);
       });
     });
   });

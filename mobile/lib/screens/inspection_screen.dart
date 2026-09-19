@@ -613,8 +613,11 @@ class InspectionResultScreen extends StatelessWidget {
 
   String _responseResult(Map<String, dynamic> response) {
     if (response['not_applicable'] == true) return 'N/A';
-    if (response['passed'] == true) return 'Pass';
-    return 'Review';
+    return switch (response['passed']) {
+      true => 'Pass',
+      false => 'Review',
+      _ => '-',
+    };
   }
 }
 
@@ -639,7 +642,6 @@ class ResponseTile extends StatefulWidget {
 class _ResponseTileState extends State<ResponseTile> {
   late double _score;
   late bool _answered;
-  late bool _passed;
   late bool _notApplicable;
   late final int _maxScore =
       ((widget.response['max_score'] as num?) ?? 5).toInt().clamp(1, 100);
@@ -655,7 +657,6 @@ class _ResponseTileState extends State<ResponseTile> {
     final savedScore = ((widget.response['score'] as num?) ?? 0).toInt();
     _answered = savedScore > 0;
     _score = savedScore > 0 ? savedScore.clamp(1, _maxScore).toDouble() : 1;
-    _passed = widget.response['passed'] == true;
     _notApplicable = widget.response['not_applicable'] == true;
     _comment.text = widget.response['comment']?.toString() ?? '';
     // Leaving the field saves right away; typing alone is debounced.
@@ -731,14 +732,6 @@ class _ResponseTileState extends State<ResponseTile> {
                   ),
                 ),
                 Text(_answered ? _score.round().toString() : '-'),
-                const SizedBox(width: 12),
-                const Text('Pass'),
-                Switch(
-                    value: _passed,
-                    onChanged: (value) {
-                      setState(() => _passed = value);
-                      _save(immediate: true);
-                    }),
               ],
             ),
             const SizedBox(height: 8),
@@ -855,7 +848,6 @@ class _ResponseTileState extends State<ResponseTile> {
           widget.response['id'] as int,
           score: _answered ? _score.round() : 0,
           notApplicable: _notApplicable,
-          passed: _passed,
           comment: _comment.text,
           immediate: immediate,
         );

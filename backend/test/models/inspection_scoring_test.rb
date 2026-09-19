@@ -134,4 +134,33 @@ class InspectionScoringTest < ActiveSupport::TestCase
 
     assert_equal [ false, true, true ], payload.values_at(:required, :photo_required, :comment_required)
   end
+
+  test "an item passes from its score, not from a switch" do
+    response = @responses[@small_question]
+
+    assert_nil response.reload.passed, "unanswered"
+
+    response.update!(score: 3)
+    assert_equal false, response.passed, "3/5 = 60%"
+    response.update!(score: 4)
+    assert_equal true, response.passed, "4/5 = 80%"
+
+    response.update!(not_applicable: true)
+    assert_nil response.passed, "N/A"
+  end
+
+  test "the passing bar is 70 percent of the item's points" do
+    ten = @template.inspection_categories.first.inspection_questions.create!(title: "Ten", max_score: 10, weight: 1, position: 2)
+    response = @inspection.inspection_responses.create!(inspection_question: ten, score: 7)
+
+    assert_equal true, response.passed
+    response.update!(score: 6)
+    assert_equal false, response.passed
+  end
+
+  test "the payload carries the derived result" do
+    @responses[@small_question].update!(score: 5)
+
+    assert_equal true, @responses[@small_question].reload.as_api_json[:passed]
+  end
 end

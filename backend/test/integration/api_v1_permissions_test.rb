@@ -106,6 +106,16 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     assert_equal "hi", inspection.general_comment
   end
 
+  test "an older app that still sends passed is tolerated and the result comes from the score" do
+    token = login(@inspector)
+    _, response_id = start_inspection(token)
+
+    patch "/api/v1/inspection_responses/#{response_id}", headers: auth_headers(token), params: { response: { score: 5, passed: false } }
+
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("response", "passed")
+  end
+
   test "a response cannot point at a question from another organization's template" do
     token = login(@inspector)
     inspection_id, = start_inspection(token)

@@ -225,7 +225,6 @@ class PendingSaveFake {
         payload: const {
           'score': 4,
           'not_applicable': false,
-          'passed': false,
           'comment': null,
         },
         updatedAt: DateTime(2026, 1, 1),

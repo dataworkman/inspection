@@ -1,3 +1,4 @@
+// ignore_for_file: prefer_const_literals_to_create_immutables
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -192,16 +193,24 @@ void main() {
       );
     }
 
-    testWidgets('toggling Pass saves it', (tester) async {
+    testWidgets('marking an item N/A saves it right away', (tester) async {
       await pumpTile(tester);
 
-      await tester.tap(find.byType(Switch));
+      await tester.tap(find.byType(Checkbox));
       await tester.pump();
 
       final saves = api.patchBodies('/inspection_responses/1');
       expect(saves, hasLength(1));
-      expect(saves.single['response']['passed'], isTrue);
-      expect(saves.single['response']['score'], 4);
+      expect(saves.single['response']['not_applicable'], isTrue);
+      expect(saves.single['response'].containsKey('passed'), isFalse,
+          reason: 'the result is computed from the score, not sent');
+    });
+
+    testWidgets('there is no Pass switch any more', (tester) async {
+      await pumpTile(tester);
+
+      expect(find.byType(Switch), findsNothing);
+      expect(find.text('Pass'), findsNothing);
     });
 
     testWidgets('typing a comment saves it after a pause', (tester) async {
@@ -814,5 +823,40 @@ void main() {
 
       state.reset(clearLocalData: false);
     });
+  });
+
+  testWidgets('the result table shows the server-computed result per item',
+      (tester) async {
+    Map<String, dynamic> row(String title, int position, num score,
+            {bool? passed, bool notApplicable = false}) =>
+        {
+          'category': 'Cleanliness',
+          'category_position': 1,
+          'title': title,
+          'position': position,
+          'score': score,
+          'max_score': 5,
+          'passed': passed,
+          'not_applicable': notApplicable,
+          'photos': const [],
+        };
+    await tester.pumpWidget(MaterialApp(
+      home: InspectionResultScreen(inspection: {
+        'status': 'submitted',
+        'score': 70,
+        'grade': 'Needs Improvement',
+        'store': {'name': 'Downtown', 'store_code': 'DT', 'address': 'Main'},
+        'responses': [
+          row('High', 1, 4, passed: true),
+          row('Low', 2, 2, passed: false),
+          row('Skipped', 3, 0, notApplicable: true),
+          row('Unanswered', 4, 0),
+        ],
+      }),
+    ));
+
+    expect(find.text('Pass'), findsOneWidget);
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('N/A'), findsWidgets);
   });
 }

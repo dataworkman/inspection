@@ -183,7 +183,6 @@ void main() {
         response['id'] as int,
         score: 4,
         notApplicable: false,
-        passed: true,
         comment: question['comment_required'] == true ? 'Checked, fine.' : null,
         immediate: true,
       );
@@ -283,7 +282,7 @@ void main() {
     // Late edits are rejected and dropped instead of blocking the user.
     final responseId = _list(inspection['responses']).first['id'] as int;
     state.scheduleResponseSave(responseId,
-        score: 1, notApplicable: false, passed: false, immediate: true);
+        score: 1, notApplicable: false, immediate: true);
     await expectLater(
         state.flushPendingSaves(),
         throwsA(
@@ -330,7 +329,7 @@ void main() {
     final responseId =
         _list(offline.activeInspection!['responses']).first['id'] as int;
     offline.scheduleResponseSave(responseId,
-        score: 5, notApplicable: false, passed: true, immediate: true);
+        score: 5, notApplicable: false, immediate: true);
     await expectLater(
         offline.flushPendingSaves(), throwsA(isA<ApiException>()));
     expect(offline.saveErrorWillRetry, isTrue);

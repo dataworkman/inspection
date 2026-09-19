@@ -22,12 +22,25 @@ List<String> correctiveActionStatusesFor(String? role) =>
         ? const ['In Progress', 'Resolved']
         : correctiveActionStatuses;
 
+/// Same rule as the server: an item passes at 70% of its points or more;
+/// unanswered (0) and N/A items have no result.
+const passRatio = 0.7;
+
+bool? passedFor({
+  required int score,
+  required Object? maxScore,
+  required bool notApplicable,
+}) {
+  final max = (maxScore as num?)?.toDouble();
+  if (notApplicable || score <= 0 || max == null || max <= 0) return null;
+  return score / max >= passRatio;
+}
+
 class _ResponseSnapshot {
   const _ResponseSnapshot({
     required this.inspectionId,
     required this.score,
     required this.notApplicable,
-    required this.passed,
     this.comment,
   });
 
@@ -37,20 +50,17 @@ class _ResponseSnapshot {
         inspectionId: inspectionId,
         score: (json['score'] as num?)?.toInt() ?? 0,
         notApplicable: json['not_applicable'] == true,
-        passed: json['passed'] == true,
         comment: json['comment'] as String?,
       );
 
   final int inspectionId;
   final int score;
   final bool notApplicable;
-  final bool passed;
   final String? comment;
 
   Map<String, dynamic> toJson() => {
         'score': score,
         'not_applicable': notApplicable,
-        'passed': passed,
         'comment': comment,
       };
 }
@@ -236,6 +246,12 @@ class InspectionState extends ChangeNotifier {
             {
               ...raw,
               ..._pendingResponses[raw['id']]!.toJson(),
+              // Derived like the server does, so the result agrees offline.
+              'passed': passedFor(
+                score: _pendingResponses[raw['id']]!.score,
+                maxScore: raw['max_score'],
+                notApplicable: _pendingResponses[raw['id']]!.notApplicable,
+              ),
             }
           else
             raw,
@@ -262,7 +278,6 @@ class InspectionState extends ChangeNotifier {
     int responseId, {
     required int score,
     required bool notApplicable,
-    required bool passed,
     String? comment,
     int? inspectionId,
   }) async {
@@ -271,7 +286,6 @@ class InspectionState extends ChangeNotifier {
       'response': {
         'score': score,
         'not_applicable': notApplicable,
-        'passed': passed,
         'comment': comment
       },
     });
@@ -286,7 +300,6 @@ class InspectionState extends ChangeNotifier {
     int responseId, {
     required int score,
     required bool notApplicable,
-    required bool passed,
     String? comment,
     bool immediate = false,
   }) {
@@ -294,7 +307,6 @@ class InspectionState extends ChangeNotifier {
       inspectionId: activeInspection!['id'] as int,
       score: score,
       notApplicable: notApplicable,
-      passed: passed,
       comment: comment,
     );
     _pendingResponses[responseId] = snapshot;
@@ -362,7 +374,6 @@ class InspectionState extends ChangeNotifier {
         inspectionId: snapshot.inspectionId,
         score: snapshot.score,
         notApplicable: snapshot.notApplicable,
-        passed: snapshot.passed,
         comment: snapshot.comment,
       );
       // Keep the stored copy if a newer edit was queued meanwhile.

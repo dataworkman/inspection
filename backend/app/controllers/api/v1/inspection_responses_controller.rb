@@ -41,7 +41,7 @@ module Api
       end
 
       def response_params
-        params.require(:response).permit(:inspection_question_id, :score, :not_applicable, :passed, :comment)
+        params.require(:response).permit(:inspection_question_id, :score, :not_applicable, :comment)
       end
     end
   end

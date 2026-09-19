@@ -13,15 +13,14 @@ void main() {
 
   void scheduleResponse({
     int score = 4,
-    bool passed = false,
+    bool notApplicable = false,
     String? comment,
     bool immediate = false,
   }) =>
       state.scheduleResponseSave(
         1,
         score: score,
-        notApplicable: false,
-        passed: passed,
+        notApplicable: notApplicable,
         comment: comment,
         immediate: immediate,
       );
@@ -54,14 +53,14 @@ void main() {
     });
   });
 
-  test('toggling Pass is sent immediately', () {
+  test('marking N/A is sent immediately', () {
     inFakeTime((async) {
-      scheduleResponse(passed: true, immediate: true);
+      scheduleResponse(notApplicable: true, immediate: true);
       async.flushMicrotasks();
 
       final saves = api.patchBodies('/inspection_responses/1');
       expect(saves, hasLength(1));
-      expect(saves.single['response']['passed'], isTrue);
+      expect(saves.single['response']['not_applicable'], isTrue);
     });
   });
 
@@ -69,13 +68,15 @@ void main() {
     inFakeTime((async) {
       scheduleResponse(comment: 'typed but not saved yet');
       scheduleResponse(
-          comment: 'typed but not saved yet', passed: true, immediate: true);
+          comment: 'typed but not saved yet',
+          notApplicable: true,
+          immediate: true);
       async.elapse(InspectionState.responseSaveDelay * 2);
       async.flushMicrotasks();
 
       final saves = api.patchBodies('/inspection_responses/1');
       expect(saves, hasLength(1));
-      expect(saves.single['response']['passed'], isTrue);
+      expect(saves.single['response']['not_applicable'], isTrue);
       expect(saves.single['response']['comment'], 'typed but not saved yet');
     });
   });
@@ -157,7 +158,7 @@ void main() {
   test('a failed save keeps the edit, blocks submit and is retried', () {
     inFakeTime((async) {
       api.failPatchesWith = ApiException('Network down', 0);
-      scheduleResponse(passed: true, immediate: true);
+      scheduleResponse(notApplicable: true, immediate: true);
       async.flushMicrotasks();
       expect(state.saveError, 'Network down');
 
@@ -177,7 +178,8 @@ void main() {
       expect(retryError, isNull);
       expect(state.saveError, isNull);
       expect(
-          api.patchBodies('/inspection_responses/1').last['response']['passed'],
+          api.patchBodies('/inspection_responses/1').last['response']
+              ['not_applicable'],
           isTrue);
       expect(api.requests, contains('POST /inspections/7/submit'));
     });
@@ -186,7 +188,7 @@ void main() {
   test('a save finishing after the user moved on does not switch inspections',
       () {
     inFakeTime((async) {
-      scheduleResponse(passed: true, immediate: true);
+      scheduleResponse(notApplicable: true, immediate: true);
       state.activeInspection = {'id': 8, 'responses': []};
       async.flushMicrotasks();
 
@@ -265,7 +267,7 @@ void main() {
       inFakeTimeWithDrafts((async) {
         final gate = Completer<void>();
         api.holdNextPatch = gate;
-        scheduleResponse(passed: true, immediate: true);
+        scheduleResponse(notApplicable: true, immediate: true);
         async.flushMicrotasks();
 
         state.reset();

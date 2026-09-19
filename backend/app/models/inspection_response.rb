@@ -22,6 +22,17 @@ class InspectionResponse < ApplicationRecord
     !not_applicable? && score.to_i.positive? && inspection_question.present?
   end
 
+  # An item passes when it earns at least this share of its points (the same
+  # bar as a "Needs Improvement" inspection grade).
+  PASS_RATIO = 0.7
+
+  # true / false for a scored item; nil when it is unanswered or N/A.
+  def passed
+    return nil unless scored?
+
+    score.to_f / inspection_question.max_score >= PASS_RATIO
+  end
+
   # Question-level weight only. Category weights are applied per category in
   # Inspection#calculate_total_score so they act as shares of the total.
   def weighted_score
