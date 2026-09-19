@@ -6,10 +6,12 @@ on:
       - "mobile/**"
       - ".github/workflows/mobile.yml"
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - "mobile/**"
       - ".github/workflows/mobile.yml"
+
+  workflow_dispatch:
 
 defaults:
   run:

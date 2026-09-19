@@ -6,10 +6,12 @@ on:
       - "backend/**"
       - ".github/workflows/backend.yml"
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - "backend/**"
       - ".github/workflows/backend.yml"
+
+  workflow_dispatch:
 
 defaults:
   run:
