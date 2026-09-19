@@ -473,4 +473,95 @@ void main() {
       expect(storage.pending.keys, ['response:1']);
     });
   });
+
+  group('a local store that stops answering', () {
+    void withHangingStore(void Function(FakeAsync async) body) {
+      fakeAsync((async) {
+        api = RecordingApiClient()
+          ..inspectionPayload = inspectionJson(comment: 'from server');
+        storage = HangingDraftStorage();
+        state = InspectionState(api, storage)
+          ..activeInspection = inspectionJson();
+        body(async);
+      });
+    }
+
+    test('never holds up saving to the server or updating the screen', () {
+      withHangingStore((async) {
+        var notified = 0;
+        state.addListener(() => notified++);
+
+        save(1, score: 5);
+        async.flushMicrotasks();
+
+        expect(api.patchBodies('/inspection_responses/1'), hasLength(1));
+        expect(state.hasPendingSaves, isFalse);
+        // The reload after the save reached the screen without waiting for the
+        // local copy to be written.
+        expect(state.activeInspection!['comment'], 'from server');
+        expect(notified, greaterThan(0));
+      });
+    });
+
+    test('does not stop a second save from being sent', () {
+      withHangingStore((async) {
+        save(1, score: 2);
+        async.flushMicrotasks();
+        save(1, score: 5);
+        async.flushMicrotasks();
+
+        final scores = api
+            .patchBodies('/inspection_responses/1')
+            .map((body) => body['response']['score']);
+        expect(scores, [2, 5]);
+      });
+    });
+
+    test('does not stop an inspection from being submitted', () {
+      withHangingStore((async) {
+        Object? error;
+        var finished = false;
+        state.submit('done').then((_) => finished = true, onError: (Object e) {
+          error = e;
+        });
+        async.elapse(InspectionState.localStoreTimeout * 2);
+        async.flushMicrotasks();
+
+        expect(error, isNull);
+        expect(finished, isTrue, reason: 'submit returned');
+        expect(api.requests, contains('POST /inspections/7/submit'));
+        expect(state.activeInspection!['status'], 'submitted');
+      });
+    });
+
+    test('signing in is not held up forever', () {
+      withHangingStore((async) {
+        var finished = false;
+        state.attachToUser(5).then((_) => finished = true);
+        async.flushMicrotasks();
+        expect(finished, isFalse);
+
+        async.elapse(InspectionState.localStoreTimeout * 3);
+        async.flushMicrotasks();
+
+        expect(finished, isTrue);
+      });
+    });
+
+    test(
+        'offline resume gives up on a stuck local copy with the original error',
+        () {
+      withHangingStore((async) {
+        state.activeInspection = null;
+        api.failGetsWith = offline;
+
+        Object? error;
+        state.resumeInspection(7).catchError((Object e) => error = e);
+        async.elapse(InspectionState.localStoreTimeout * 2);
+        async.flushMicrotasks();
+
+        expect(error, isA<ApiException>());
+      });
+    });
+  });
 }

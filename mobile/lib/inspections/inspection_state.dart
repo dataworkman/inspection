@@ -75,6 +75,10 @@ class InspectionState extends ChangeNotifier {
   static const commentSaveDelay = Duration(milliseconds: 800);
   static const retryInterval = Duration(seconds: 20);
 
+  /// The local database is only a safety net. If it stops answering it must
+  /// never hold up talking to the server, so every local call gives up after this.
+  static const localStoreTimeout = Duration(seconds: 5);
+
   final ApiClient apiClient;
   final LocalDraftStorage drafts;
 
@@ -205,7 +209,7 @@ class InspectionState extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> _loadSavedDraft(int inspectionId) async {
     try {
-      return await drafts.loadDraft(inspectionId);
+      return await drafts.loadDraft(inspectionId).timeout(localStoreTimeout);
     } catch (error) {
       debugPrint('Reading draft failed: $error');
       return null;
@@ -216,8 +220,9 @@ class InspectionState extends ChangeNotifier {
   /// reached the server yet on top of it, and keeps a copy on the device.
   Future<void> _activate(Map<String, dynamic> payload) async {
     activeInspection = _withPendingApplied(payload);
-    await _saveDraft(payload['id'] as int, activeInspection!);
     notifyListeners();
+    // Not awaited: the local copy must never delay the screen or a save.
+    unawaited(_saveDraft(payload['id'] as int, activeInspection!));
   }
 
   Map<String, dynamic> _withPendingApplied(Map<String, dynamic> payload) {
@@ -492,9 +497,11 @@ class InspectionState extends ChangeNotifier {
   /// user is discarded; the user's own unsent edits are loaded and sent.
   Future<void> attachToUser(int userId) async {
     try {
-      final owner = await drafts.owner();
-      if (owner != null && owner != userId) await drafts.clearAll();
-      await drafts.setOwner(userId);
+      final owner = await drafts.owner().timeout(localStoreTimeout);
+      if (owner != null && owner != userId) {
+        await drafts.clearAll().timeout(localStoreTimeout);
+      }
+      await drafts.setOwner(userId).timeout(localStoreTimeout);
       await restorePendingSaves();
       await loadLocalDrafts();
     } catch (error) {
@@ -505,7 +512,7 @@ class InspectionState extends ChangeNotifier {
   /// Loads the edits that were still unsent when the app was last closed.
   Future<void> restorePendingSaves() async {
     final epoch = _epoch;
-    final saved = await drafts.loadPending();
+    final saved = await drafts.loadPending().timeout(localStoreTimeout);
     if (epoch != _epoch) return;
 
     // Oldest first, so a later edit of the same response wins.
@@ -530,7 +537,7 @@ class InspectionState extends ChangeNotifier {
 
   Future<void> loadLocalDrafts() async {
     try {
-      final saved = await drafts.loadDrafts();
+      final saved = await drafts.loadDrafts().timeout(localStoreTimeout);
       localDrafts = [
         for (final draft in saved)
           if (openStatuses.contains(draft['status'])) draft,
@@ -622,7 +629,7 @@ class InspectionState extends ChangeNotifier {
       'inspection': {'comment': comment},
     });
     activeInspection = payload['inspection'] as Map<String, dynamic>;
-    await drafts.clearDraft(inspectionId);
+    await _localBestEffort(() => drafts.clearDraft(inspectionId));
     await loadHistory();
     notifyListeners();
   }
@@ -705,10 +712,16 @@ class InspectionState extends ChangeNotifier {
 
   Future<void> _saveDraft(
       int inspectionId, Map<String, dynamic> payload) async {
+    await _localBestEffort(() => drafts.saveDraft(inspectionId, payload));
+  }
+
+  /// Runs a local-store call that is nice to have: it gives up after
+  /// [localStoreTimeout] and its failure is only logged.
+  Future<void> _localBestEffort(Future<void> Function() operation) async {
     try {
-      await drafts.saveDraft(inspectionId, payload);
+      await operation().timeout(localStoreTimeout);
     } catch (error) {
-      debugPrint('Draft save failed: $error');
+      debugPrint('Local store call failed: $error');
     }
   }
 }

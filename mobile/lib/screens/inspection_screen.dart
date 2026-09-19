@@ -57,45 +57,66 @@ class _InspectionScreenState extends State<InspectionScreen> {
       appBar: AppBar(
           title: Text(
               (inspection['store'] as Map<String, dynamic>)['name'] as String)),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+      // The banner sits above the list, not inside it: inserting a child at the
+      // top of an unkeyed list would shift every item's state onto the wrong
+      // widget and wipe what the user just entered.
+      body: Column(
         children: [
-          if (inspections.saveError != null) ...[
-            _SaveErrorBanner(
-              message: inspections.saveErrorWillRetry
-                  ? '${inspections.saveError!}. Your changes are kept on this device and will be sent when the connection is back.'
-                  : inspections.saveError!,
-              onRetry: () => inspections.flushPendingSaves().ignore(),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _InspectionHeader(inspection: inspection),
-          const SizedBox(height: 16),
-          for (final group in responses) ...[
-            _CategorySectionHeader(group: group),
-            const SizedBox(height: 8),
-            for (final response in group.responses)
-              ResponseTile(
-                response: response,
-                onPhoto: _addPhoto,
-                onPhotoSelected: _uploadSelectedPhoto,
+          if (inspections.saveError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: _SaveErrorBanner(
+                message: inspections.saveErrorWillRetry
+                    ? '${inspections.saveError!}. Your changes are kept on this device and will be sent when the connection is back.'
+                    : inspections.saveError!,
+                onRetry: () => inspections.flushPendingSaves().ignore(),
               ),
-            const SizedBox(height: 8),
-          ],
-          const SizedBox(height: 12),
-          TextField(
-            controller: _comment,
-            minLines: 2,
-            maxLines: 4,
-            decoration: const InputDecoration(
-                labelText: 'Inspection comment', border: OutlineInputBorder()),
-            onChanged: inspections.scheduleCommentSave,
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _submitting ? null : () => _submit(context, inspections),
-            icon: const Icon(Icons.cloud_done),
-            label: Text(_submitting ? 'Submitting...' : 'Submit inspection'),
+            ),
+          Expanded(
+            child: ListView(
+              // On the web the photo button is an HtmlElementView, and Flutter's
+              // platform view placeholder asserts (localToGlobal on a detached box)
+              // whenever a lazy list builds and drops such a child within a frame,
+              // which happens constantly while scrolling. A checklist only has a
+              // couple of dozen items, so build them all once.
+              scrollCacheExtent:
+                  kIsWeb ? const ScrollCacheExtent.pixels(20000) : null,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              children: [
+                _InspectionHeader(inspection: inspection),
+                const SizedBox(height: 16),
+                for (final group in responses) ...[
+                  _CategorySectionHeader(group: group),
+                  const SizedBox(height: 8),
+                  for (final response in group.responses)
+                    ResponseTile(
+                      key: ValueKey('response-${response['id']}'),
+                      response: response,
+                      onPhoto: _addPhoto,
+                      onPhotoSelected: _uploadSelectedPhoto,
+                    ),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _comment,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                      labelText: 'Inspection comment',
+                      border: OutlineInputBorder()),
+                  onChanged: inspections.scheduleCommentSave,
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed:
+                      _submitting ? null : () => _submit(context, inspections),
+                  icon: const Icon(Icons.cloud_done),
+                  label:
+                      Text(_submitting ? 'Submitting...' : 'Submit inspection'),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -467,7 +488,7 @@ class _InspectionHeader extends StatelessWidget {
             ),
             _InspectionMetric(
               label: 'Status',
-              value: inspection['status'].toString(),
+              value: _statusLabel(inspection['status']),
               icon: Icons.assignment,
             ),
             if (inspection['grade'] != null)
@@ -481,6 +502,12 @@ class _InspectionHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 'in_progress' -> 'In progress'.
+String _statusLabel(Object? status) {
+  final text = (status ?? '').toString().replaceAll('_', ' ');
+  return text.isEmpty ? '-' : text[0].toUpperCase() + text.substring(1);
 }
 
 class _InspectionMetric extends StatelessWidget {
@@ -667,6 +694,7 @@ class _ResponseTileState extends State<ResponseTile> {
                     children: [
                       Text(widget.response['title'] as String,
                           style: Theme.of(context).textTheme.titleMedium),
+                      _requirements(),
                     ],
                   ),
                 ),
@@ -719,7 +747,7 @@ class _ResponseTileState extends State<ResponseTile> {
               focusNode: _commentFocus,
               decoration: const InputDecoration(labelText: 'Comment'),
               onChanged: (_) {
-                _commentDirty = true;
+                setState(() => _commentDirty = true);
                 _save();
               },
               onSubmitted: (_) {
@@ -771,6 +799,31 @@ class _ResponseTileState extends State<ResponseTile> {
     );
   }
 
+  /// What this item still needs before the inspection can be submitted.
+  Widget _requirements() {
+    final needsPhoto = widget.response['photo_required'] == true;
+    final needsComment = widget.response['comment_required'] == true;
+    if (_notApplicable || (!needsPhoto && !needsComment)) {
+      return const SizedBox.shrink();
+    }
+    final hasPhoto =
+        (widget.response['photos'] as List<dynamic>? ?? const []).isNotEmpty;
+    final hasComment = _comment.text.trim().isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          if (needsPhoto)
+            _RequirementChip(label: 'Photo required', done: hasPhoto),
+          if (needsComment)
+            _RequirementChip(label: 'Comment required', done: hasComment),
+        ],
+      ),
+    );
+  }
+
   Future<void> _addAction() async {
     final inspections = context.read<InspectionState>();
     final messenger = ScaffoldMessenger.of(context);
@@ -806,6 +859,39 @@ class _ResponseTileState extends State<ResponseTile> {
           comment: _comment.text,
           immediate: immediate,
         );
+  }
+}
+
+class _RequirementChip extends StatelessWidget {
+  const _RequirementChip({required this.label, required this.done});
+
+  final String label;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = done ? scheme.primary : scheme.tertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(done ? Icons.check_circle : Icons.error_outline,
+              size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: color)),
+        ],
+      ),
+    );
   }
 }
 

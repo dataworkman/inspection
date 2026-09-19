@@ -638,4 +638,177 @@ void main() {
     expect(find.text('Your session expired. Please sign in again.'),
         findsOneWidget);
   });
+
+  group('item requirements and header', () {
+    Future<void> pumpTile(
+        WidgetTester tester, Map<String, dynamic> response) async {
+      final state = InspectionState(RecordingApiClient(), NoDraftStorage())
+        ..activeInspection = {'id': 7, 'responses': []};
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ResponseTile(
+                  response: {
+                    'id': 1,
+                    'title': 'Floor cleanliness',
+                    'score': 3,
+                    'max_score': 5,
+                    'not_applicable': false,
+                    'photos': const [],
+                    ...response,
+                  },
+                  onPhoto: (_, __) async {},
+                  onPhotoSelected: (_, __, ___) async {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('tell the user what an item still needs', (tester) async {
+      await pumpTile(
+          tester, {'photo_required': true, 'comment_required': true});
+
+      expect(find.text('Photo required'), findsOneWidget);
+      expect(find.text('Comment required'), findsOneWidget);
+      expect(find.byIcon(Icons.error_outline), findsNWidgets(2));
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+    });
+
+    testWidgets('show nothing for items without requirements', (tester) async {
+      await pumpTile(
+          tester, {'photo_required': false, 'comment_required': false});
+
+      expect(find.text('Photo required'), findsNothing);
+      expect(find.text('Comment required'), findsNothing);
+    });
+
+    testWidgets('are ticked off once met', (tester) async {
+      await pumpTile(tester, {
+        'photo_required': true,
+        'comment_required': true,
+        'comment': 'Mopped twice',
+        'photos': [
+          {'id': 1}
+        ],
+      });
+
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+      expect(find.byIcon(Icons.error_outline), findsNothing);
+    });
+
+    testWidgets('the comment requirement is met as soon as something is typed',
+        (tester) async {
+      await pumpTile(tester, {'comment_required': true});
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'Sticky floor');
+      await tester.pump();
+
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      await tester.pump(InspectionState.responseSaveDelay);
+    });
+
+    testWidgets('do not apply to items marked N/A', (tester) async {
+      await pumpTile(tester, {
+        'photo_required': true,
+        'comment_required': true,
+        'not_applicable': true,
+      });
+
+      expect(find.text('Photo required'), findsNothing);
+    });
+
+    testWidgets(
+        'the header shows a readable status and no grade before scoring',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: InspectionResultScreen(inspection: {
+          'status': 'in_progress',
+          'score': 0,
+          'grade': null,
+          'store': {'name': 'Downtown', 'store_code': 'DT', 'address': 'Main'},
+          'responses': [],
+        }),
+      ));
+
+      expect(find.text('In progress'), findsOneWidget);
+      expect(find.text('in_progress'), findsNothing);
+      expect(find.text('Grade'), findsNothing);
+    });
+  });
+
+  group('when saving fails', () {
+    testWidgets('the banner appears without wiping what the user entered',
+        (tester) async {
+      final api = RecordingApiClient()
+        ..failPatchesWith = ApiException('Cannot reach the server', 0);
+      final inspection = {
+        'id': 7,
+        'status': 'in_progress',
+        'score': 80,
+        'store': {'name': 'Downtown', 'store_code': 'DT', 'address': 'Main'},
+        'responses': [
+          for (final id in [1, 2])
+            {
+              'id': id,
+              'title': 'Item $id',
+              'category': 'Cleanliness',
+              'category_position': 1,
+              'position': id,
+              'score': 4,
+              'max_score': 5,
+              'not_applicable': false,
+              'photos': const [],
+            },
+        ],
+      };
+      api.inspectionPayload = inspection;
+      final state = InspectionState(api, NoDraftStorage())
+        ..activeInspection = inspection;
+      // Tall enough for both items even with the banner on screen.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: const MaterialApp(home: InspectionScreen()),
+        ),
+      );
+      expect(find.text('4'), findsNWidgets(2));
+
+      // Change the first item to 1 (left end of its slider) and type a comment
+      // on the second while the connection is down.
+      final slider = find.byType(Slider).first;
+      await tester.tapAt(tester.getTopLeft(slider) + const Offset(30, 24));
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Comment').last, 'Sticky');
+      await tester.pump(InspectionState.responseSaveDelay);
+      await tester.pump();
+
+      // The failed saves put a banner on screen ...
+      expect(find.textContaining('Some changes are not saved'), findsOneWidget);
+      // ... and the user's input is still what they entered, not reset.
+      expect(
+          find.descendant(
+              of: find.byType(ResponseTile).first, matching: find.text('1')),
+          findsOneWidget,
+          reason: 'the new score of the first item');
+      expect(find.text('4'), findsOneWidget, reason: 'the untouched item');
+      expect(
+          tester
+              .widget<TextField>(find.widgetWithText(TextField, 'Sticky'))
+              .controller!
+              .text,
+          'Sticky');
+
+      state.reset(clearLocalData: false);
+    });
+  });
 }

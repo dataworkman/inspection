@@ -231,3 +231,41 @@ class PendingSaveFake {
         updatedAt: DateTime(2026, 1, 1),
       );
 }
+
+/// A local store that never answers, like a stuck IndexedDB/SQLite worker.
+class HangingDraftStorage extends MemoryDraftStorage {
+  Future<T> _never<T>() => Completer<T>().future;
+
+  @override
+  Future<void> saveDraft(int inspectionId, Map<String, dynamic> payload) =>
+      _never();
+
+  @override
+  Future<Map<String, dynamic>?> loadDraft(int inspectionId) => _never();
+
+  @override
+  Future<List<Map<String, dynamic>>> loadDrafts() => _never();
+
+  @override
+  Future<void> clearDraft(int inspectionId) => _never();
+
+  @override
+  Future<void> savePending(String kind, int key, int inspectionId,
+          Map<String, dynamic> payload) =>
+      _never();
+
+  @override
+  Future<void> deletePending(String kind, int key) => _never();
+
+  @override
+  Future<List<PendingSave>> loadPending() => _never();
+
+  @override
+  Future<int?> owner() => _never();
+
+  @override
+  Future<void> setOwner(int userId) => _never();
+
+  @override
+  Future<void> clearAll() => _never();
+}

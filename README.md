@@ -119,6 +119,17 @@ Answers use a 1..`max_score` scale; `0` means "not answered". Each category is s
 - A session that is rejected by the server (expired or revoked) returns to the login screen; being offline never signs you out. Logging out revokes the token on the server, clears the previous user's data from the device, and warns first if edits could not be sent. Local data left by a different user is discarded at login.
 - Corrective actions are created from a checklist item (title, details, severity, due date) and their status is changed from the Actions tab, limited to what the user's role may set.
 
+## End-to-end test against a live backend
+
+`mobile/test/e2e/live_server_test.dart` drives the app's real client code (`ApiClient`, `AuthState`, `InspectionState`) against a running backend: login and session restore, lists, starting and answering an inspection, photo upload, corrective actions, submission and scoring, the admin dashboard, store manager permissions, logout/revocation, and offline behavior. It is skipped unless a server address is given:
+
+```bash
+cd backend && bin/rails db:seed && bin/rails server -p 3002
+cd mobile && E2E_BASE_URL=http://127.0.0.1:3002 flutter test test/e2e
+```
+
+It creates its own store, so it can be re-run; login is rate limited per account, so restart the server if you run it many times in a row.
+
 ## Continuous Integration
 
 GitHub Actions workflows live in the repository root `.github/workflows/` (GitHub ignores nested ones):
