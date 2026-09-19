@@ -37,7 +37,7 @@ class AnnotationMark {
               points.map((point) => {'x': point.dx, 'y': point.dy}).toList(),
         'note': note,
         'tool': tool.name,
-        'color': color.value,
+        'color': color.toARGB32(),
         'stroke_width': strokeWidth,
       };
 }

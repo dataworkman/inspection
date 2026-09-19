@@ -9,6 +9,8 @@ import 'package:store_inspection_mobile/screens/home_screen.dart';
 import 'package:store_inspection_mobile/screens/inspection_screen.dart';
 import 'package:store_inspection_mobile/screens/login_screen.dart';
 
+import 'support/fakes.dart';
+
 void main() {
   testWidgets('shows login screen', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
@@ -66,7 +68,7 @@ void main() {
   });
 
   testWidgets('inspection result groups rows by category', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(const MaterialApp(
       home: InspectionResultScreen(
         inspection: {
           'status': 'submitted',
@@ -110,5 +112,118 @@ void main() {
     expect(find.text('Counters'), findsOneWidget);
     expect(find.text('Greeting'), findsOneWidget);
     expect(find.text('Item'), findsNWidgets(2));
+  });
+
+  testWidgets('response tile shows unanswered items as not scored',
+      (tester) async {
+    Map<String, dynamic> response(int score) => {
+          'id': 1,
+          'title': 'Floor cleanliness',
+          'score': score,
+          'max_score': 5,
+          'not_applicable': false,
+          'photos': [],
+        };
+    Future<void> pumpTile(Map<String, dynamic> data) => tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ResponseTile(
+                  key: ValueKey(data['score']),
+                  response: data,
+                  onPhoto: (_, __) async {},
+                  onPhotoSelected: (_, __, ___) async {},
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await pumpTile(response(0));
+    expect(find.text('-'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
+
+    await pumpTile(response(4));
+    await tester.pump();
+    expect(find.text('4'), findsOneWidget);
+  });
+
+  group('response tile saving', () {
+    late RecordingApiClient api;
+
+    Future<void> pumpTile(WidgetTester tester) async {
+      api = RecordingApiClient();
+      final state = InspectionState(api, NoDraftStorage())
+        ..activeInspection = {'id': 7, 'responses': []};
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ResponseTile(
+                  response: const {
+                    'id': 1,
+                    'title': 'Floor cleanliness',
+                    'score': 4,
+                    'max_score': 5,
+                    'not_applicable': false,
+                    'passed': false,
+                    'photos': [],
+                  },
+                  onPhoto: (_, __) async {},
+                  onPhotoSelected: (_, __, ___) async {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('toggling Pass saves it', (tester) async {
+      await pumpTile(tester);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+
+      final saves = api.patchBodies('/inspection_responses/1');
+      expect(saves, hasLength(1));
+      expect(saves.single['response']['passed'], isTrue);
+      expect(saves.single['response']['score'], 4);
+    });
+
+    testWidgets('typing a comment saves it after a pause', (tester) async {
+      await pumpTile(tester);
+
+      await tester.enterText(find.byType(TextField), 'Sticky floor');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(api.patchBodies('/inspection_responses/1'), isEmpty);
+
+      await tester.pump(InspectionState.responseSaveDelay);
+
+      final saves = api.patchBodies('/inspection_responses/1');
+      expect(saves, hasLength(1));
+      expect(saves.single['response']['comment'], 'Sticky floor');
+    });
+
+    testWidgets('leaving the comment field saves it right away',
+        (tester) async {
+      await pumpTile(tester);
+
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'Sticky floor');
+      await tester.pump(const Duration(milliseconds: 100));
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+
+      final saves = api.patchBodies('/inspection_responses/1');
+      expect(saves, hasLength(1));
+      expect(saves.single['response']['comment'], 'Sticky floor');
+
+      // The debounce timer must not send a duplicate afterwards.
+      await tester.pump(InspectionState.responseSaveDelay);
+      expect(api.patchBodies('/inspection_responses/1'), hasLength(1));
+    });
   });
 }

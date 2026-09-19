@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,9 +12,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _email =
-      TextEditingController(text: 'inspector@bakery-inspection.test');
-  final _password = TextEditingController(text: 'password123');
+  // Demo accounts (see README) are prefilled in debug builds only.
+  final _email = TextEditingController(
+      text: kDebugMode ? 'inspector@bakery-inspection.test' : '');
+  final _password =
+      TextEditingController(text: kDebugMode ? 'password123' : '');
   String? _error;
 
   @override
@@ -41,7 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               color: Theme.of(context)
                                   .colorScheme
                                   .primary
-                                  .withOpacity(0.12),
+                                  .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(Icons.fact_check,

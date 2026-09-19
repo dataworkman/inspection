@@ -1,5 +1,6 @@
 import 'dart:async';
-// ignore: avoid_web_libraries_in_flutter
+// TODO: migrate to package:web + dart:js_interop.
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 import 'dart:typed_data';
 // ignore: undefined_prefixed_name

@@ -21,6 +21,7 @@ class InspectionScreen extends StatefulWidget {
 class _InspectionScreenState extends State<InspectionScreen> {
   final _comment = TextEditingController();
   final _photoPicker = PhotoPickerService();
+  bool _submitting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +39,13 @@ class _InspectionScreenState extends State<InspectionScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         children: [
+          if (inspections.saveError != null) ...[
+            _SaveErrorBanner(
+              message: inspections.saveError!,
+              onRetry: () => inspections.flushPendingSaves().ignore(),
+            ),
+            const SizedBox(height: 12),
+          ],
           _InspectionHeader(inspection: inspection),
           const SizedBox(height: 16),
           for (final group in responses) ...[
@@ -58,25 +66,42 @@ class _InspectionScreenState extends State<InspectionScreen> {
             maxLines: 4,
             decoration: const InputDecoration(
                 labelText: 'Inspection comment', border: OutlineInputBorder()),
-            onChanged: (value) => inspections.updateComment(value),
+            onChanged: inspections.scheduleCommentSave,
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () async {
-              await inspections.submit(_comment.text);
-              final submitted = inspections.activeInspection;
-              if (context.mounted && submitted != null) {
-                Navigator.of(context).pushReplacement(MaterialPageRoute(
-                    builder: (_) =>
-                        InspectionResultScreen(inspection: submitted)));
-              }
-            },
+            onPressed: _submitting ? null : () => _submit(context, inspections),
             icon: const Icon(Icons.cloud_done),
-            label: const Text('Submit inspection'),
+            label: Text(_submitting ? 'Submitting...' : 'Submit inspection'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _submit(
+      BuildContext context, InspectionState inspections) async {
+    setState(() => _submitting = true);
+    try {
+      await inspections.submit(_comment.text);
+      final submitted = inspections.activeInspection;
+      if (context.mounted && submitted != null) {
+        await Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => InspectionResultScreen(inspection: submitted)));
+      }
+    } catch (error) {
+      // The server rejects submissions with unanswered required items,
+      // missing required photos or comments; show what it says.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Could not submit: $error'),
+              duration: const Duration(seconds: 6)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   Future<void> _addPhoto(
@@ -228,6 +253,35 @@ class _CategoryResponseGroup {
   final List<Map<String, dynamic>> responses;
 }
 
+class _SaveErrorBanner extends StatelessWidget {
+  const _SaveErrorBanner({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off, color: scheme.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Some changes are not saved: $message',
+                  style: TextStyle(color: scheme.onErrorContainer)),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CategorySectionHeader extends StatelessWidget {
   const _CategorySectionHeader({required this.group});
 
@@ -235,16 +289,11 @@ class _CategorySectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final answered = group.responses.where((response) {
-      final hasScore = ((response['score'] as num?) ?? 0) > 0;
-      final hasComment = response['comment']?.toString().isNotEmpty == true;
-      final hasPhotos =
-          (response['photos'] as List<dynamic>? ?? const []).isNotEmpty;
-      return hasScore ||
-          hasComment ||
-          hasPhotos ||
-          response['not_applicable'] == true;
-    }).length;
+    final answered = group.responses
+        .where((response) =>
+            ((response['score'] as num?) ?? 0) > 0 ||
+            response['not_applicable'] == true)
+        .length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -286,7 +335,9 @@ class _CategoryResultTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scoredResponses = group.responses
-        .where((response) => response['not_applicable'] != true)
+        .where((response) =>
+            response['not_applicable'] != true &&
+            ((response['score'] as num?) ?? 0) > 0)
         .toList();
     final earned = scoredResponses.fold<double>(
         0, (total, response) => total + (((response['score'] as num?) ?? 0)));
@@ -538,17 +589,39 @@ class ResponseTile extends StatefulWidget {
 
 class _ResponseTileState extends State<ResponseTile> {
   late double _score;
+  late bool _answered;
   late bool _passed;
   late bool _notApplicable;
+  late final int _maxScore =
+      ((widget.response['max_score'] as num?) ?? 5).toInt().clamp(1, 100);
   final _comment = TextEditingController();
+  final _commentFocus = FocusNode();
+  bool _commentDirty = false;
 
   @override
   void initState() {
     super.initState();
-    _score = ((widget.response['score'] as num?) ?? 1).toDouble().clamp(1, 5);
+    // The server stores 0 for "not answered yet"; the scale itself starts at 1.
+    final savedScore = ((widget.response['score'] as num?) ?? 0).toInt();
+    _answered = savedScore > 0;
+    _score = savedScore > 0 ? savedScore.clamp(1, _maxScore).toDouble() : 1;
     _passed = widget.response['passed'] == true;
     _notApplicable = widget.response['not_applicable'] == true;
     _comment.text = widget.response['comment']?.toString() ?? '';
+    // Leaving the field saves right away; typing alone is debounced.
+    _commentFocus.addListener(() {
+      if (!_commentFocus.hasFocus && _commentDirty && mounted) {
+        _commentDirty = false;
+        _save(immediate: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _commentFocus.dispose();
+    _comment.dispose();
+    super.dispose();
   }
 
   @override
@@ -576,7 +649,7 @@ class _ResponseTileState extends State<ResponseTile> {
                   value: _notApplicable,
                   onChanged: (value) {
                     setState(() => _notApplicable = value ?? false);
-                    _save(context);
+                    _save(immediate: true);
                   },
                 ),
                 const Padding(
@@ -592,28 +665,42 @@ class _ResponseTileState extends State<ResponseTile> {
                   child: Slider(
                     value: _score,
                     min: 1,
-                    max: 5,
-                    divisions: 4,
+                    max: _maxScore.toDouble(),
+                    divisions: _maxScore > 1 ? _maxScore - 1 : null,
                     label: _score.round().toString(),
+                    onChangeStart: _notApplicable
+                        ? null
+                        : (_) => setState(() => _answered = true),
                     onChanged: _notApplicable
                         ? null
                         : (value) => setState(() => _score = value),
-                    onChangeEnd: (_) => _save(context),
+                    onChangeEnd: (_) => _save(immediate: true),
                   ),
                 ),
-                Text(_score.round().toString()),
+                Text(_answered ? _score.round().toString() : '-'),
                 const SizedBox(width: 12),
                 const Text('Pass'),
                 Switch(
                     value: _passed,
-                    onChanged: (value) => setState(() => _passed = value)),
+                    onChanged: (value) {
+                      setState(() => _passed = value);
+                      _save(immediate: true);
+                    }),
               ],
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _comment,
+              focusNode: _commentFocus,
               decoration: const InputDecoration(labelText: 'Comment'),
-              onSubmitted: (_) => _save(context),
+              onChanged: (_) {
+                _commentDirty = true;
+                _save();
+              },
+              onSubmitted: (_) {
+                _commentDirty = false;
+                _save(immediate: true);
+              },
             ),
             PhotoStrip(
                 photos:
@@ -654,13 +741,14 @@ class _ResponseTileState extends State<ResponseTile> {
     );
   }
 
-  Future<void> _save(BuildContext context) {
-    return context.read<InspectionState>().updateResponse(
+  void _save({bool immediate = false}) {
+    context.read<InspectionState>().scheduleResponseSave(
           widget.response['id'] as int,
-          score: _score.round(),
+          score: _answered ? _score.round() : 0,
           notApplicable: _notApplicable,
           passed: _passed,
           comment: _comment.text,
+          immediate: immediate,
         );
   }
 }
@@ -675,7 +763,7 @@ class _CategoryChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(label, style: Theme.of(context).textTheme.labelMedium),

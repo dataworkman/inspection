@@ -13,8 +13,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDatabaseFactory();
 
-  const baseUrl = String.fromEnvironment('API_BASE_URL',
-      defaultValue: 'http://100.107.174.72:3002');
+  // Override per environment: --dart-define=API_BASE_URL=https://api.example.com
+  // (Android emulator: http://10.0.2.2:3002, physical device: your machine's LAN IP).
+  const baseUrl =
+      String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3002');
   final apiClient = ApiClient(baseUrl: baseUrl);
 
   runApp(StoreInspectionApp(apiClient: apiClient));
@@ -57,7 +59,7 @@ class StoreInspectionApp extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          cardTheme: CardTheme(
+          cardTheme: CardThemeData(
             elevation: 0,
             color: const Color(0xfffbfcf7),
             shape: RoundedRectangleBorder(
