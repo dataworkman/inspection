@@ -80,6 +80,29 @@ class InspectionState extends ChangeNotifier {
     notifyListeners();
   }
 
+  static const openStatuses = ['draft', 'in_progress'];
+
+  /// The user's own unfinished inspection of a store, if any.
+  Map<String, dynamic>? openInspectionFor(int storeId, int? userId) {
+    for (final item in history) {
+      final inspection = item as Map<String, dynamic>;
+      if (!openStatuses.contains(inspection['status'])) continue;
+      if ((inspection['store'] as Map<String, dynamic>)['id'] != storeId) {
+        continue;
+      }
+      final inspector = inspection['inspector'] as Map<String, dynamic>?;
+      if (inspector != null && inspector['id'] == userId) return inspection;
+    }
+    return null;
+  }
+
+  /// Loads an unfinished inspection and makes it the active one.
+  Future<void> resumeInspection(int inspectionId) async {
+    activeInspection = await loadInspectionDetail(inspectionId);
+    await _saveDraft(inspectionId, activeInspection!);
+    notifyListeners();
+  }
+
   Future<void> startInspection(int storeId, int templateId) async {
     final payload = await apiClient.post('/inspections', {
       'inspection': {

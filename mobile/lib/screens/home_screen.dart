@@ -182,11 +182,12 @@ class StoreListView extends StatefulWidget {
 }
 
 class _StoreListViewState extends State<StoreListView> {
-  int? _startingStoreId;
+  int? _busyStoreId;
 
   @override
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
+    final userId = context.read<AuthState>().userId;
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: inspections.stores.length,
@@ -196,7 +197,9 @@ class _StoreListViewState extends State<StoreListView> {
             ? null
             : inspections.templates.first as Map<String, dynamic>;
         final storeId = store['id'] as int;
-        final starting = _startingStoreId == storeId;
+        final busy = _busyStoreId == storeId;
+        final open = inspections.openInspectionFor(storeId, userId);
+        final templateId = template?['id'] as int?;
         return _ContentCard(
           child: ListTile(
             contentPadding: EdgeInsets.zero,
@@ -210,22 +213,56 @@ class _StoreListViewState extends State<StoreListView> {
               padding: const EdgeInsets.only(top: 4),
               child: Text('${store['store_code']} - ${store['address']}'),
             ),
-            trailing: starting
+            trailing: busy
                 ? const SizedBox.square(
                     dimension: 24,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : FilledButton.icon(
-                    onPressed: template == null || _startingStoreId != null
-                        ? null
-                        : () => _startInspection(
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (open != null) ...[
+                        FilledButton.icon(
+                          onPressed: _busyStoreId != null
+                              ? null
+                              : () => _open(
+                                  context,
+                                  storeId,
+                                  () => inspections
+                                      .resumeInspection(open['id'] as int),
+                                  'resume'),
+                          icon: const Icon(Icons.play_circle),
+                          label: const Text('Resume'),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: 'More',
+                          enabled: templateId != null && _busyStoreId == null,
+                          onSelected: (_) => _open(
                               context,
-                              inspections,
                               storeId,
-                              template['id'] as int,
-                            ),
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start'),
+                              () => inspections.startInspection(
+                                  storeId, templateId!),
+                              'start'),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                                value: 'new',
+                                child: Text('Start a new inspection')),
+                          ],
+                        ),
+                      ] else
+                        FilledButton.icon(
+                          onPressed: templateId == null || _busyStoreId != null
+                              ? null
+                              : () => _open(
+                                  context,
+                                  storeId,
+                                  () => inspections.startInspection(
+                                      storeId, templateId),
+                                  'start'),
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Start'),
+                        ),
+                    ],
                   ),
           ),
         );
@@ -233,27 +270,30 @@ class _StoreListViewState extends State<StoreListView> {
     );
   }
 
-  Future<void> _startInspection(
+  Future<void> _open(
     BuildContext context,
-    InspectionState inspections,
     int storeId,
-    int templateId,
+    Future<void> Function() prepare,
+    String verb,
   ) async {
-    setState(() => _startingStoreId = storeId);
+    final inspections = context.read<InspectionState>();
+    setState(() => _busyStoreId = storeId);
     try {
-      await inspections.startInspection(storeId, templateId);
+      await prepare();
       if (context.mounted) {
         await Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => const InspectionScreen()));
+        // Refresh so the store shows Resume/Start according to what happened.
+        inspections.loadHistory().ignore();
       }
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start inspection: $error')),
+          SnackBar(content: Text('Could not $verb inspection: $error')),
         );
       }
     } finally {
-      if (mounted) setState(() => _startingStoreId = null);
+      if (mounted) setState(() => _busyStoreId = null);
     }
   }
 }
@@ -286,6 +326,19 @@ class HistoryView extends StatelessWidget {
               trailing: _Pill(label: item['grade']?.toString() ?? 'Open'),
               onTap: () async {
                 try {
+                  final inspector = item['inspector'] as Map<String, dynamic>?;
+                  final resumable =
+                      InspectionState.openStatuses.contains(item['status']) &&
+                          inspector?['id'] == context.read<AuthState>().userId;
+                  if (resumable) {
+                    await inspections.resumeInspection(item['id'] as int);
+                    if (context.mounted) {
+                      await Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const InspectionScreen()));
+                      inspections.loadHistory().ignore();
+                    }
+                    return;
+                  }
                   final detail =
                       await inspections.loadInspectionDetail(item['id'] as int);
                   if (context.mounted) {

@@ -28,6 +28,23 @@ class _InspectionScreenState extends State<InspectionScreen> {
   bool _submitting = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Resuming an inspection: bring back the comment written so far.
+    _comment.text = context
+            .read<InspectionState>()
+            .activeInspection?['comment']
+            ?.toString() ??
+        '';
+  }
+
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
     final inspection = inspections.activeInspection;

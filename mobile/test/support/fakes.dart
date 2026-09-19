@@ -20,7 +20,11 @@ class RecordingApiClient extends ApiClient {
   /// Corrective actions the "server" holds (GET /corrective_actions).
   List<Map<String, dynamic>> actionsPayload = [];
   Object? failPostsWith;
+  Object? failGetsWith;
   Completer<void>? holdNextPost;
+
+  /// What GET /inspections (the history list) returns.
+  List<Map<String, dynamic>> historyPayload = [];
 
   /// What GET /inspections/:id returns.
   Map<String, dynamic> inspectionPayload = {'id': 7, 'responses': []};
@@ -36,7 +40,8 @@ class RecordingApiClient extends ApiClient {
   Future<Map<String, dynamic>> get(String path) async {
     requests.add('GET $path');
     bodies.add(const {});
-    if (path == '/inspections') return {'inspections': []};
+    if (failGetsWith != null) throw failGetsWith!;
+    if (path == '/inspections') return {'inspections': historyPayload};
     if (path == '/corrective_actions') {
       return {'corrective_actions': actionsPayload};
     }
@@ -96,6 +101,7 @@ class RecordingApiClient extends ApiClient {
     holdNextPost = null;
     if (hold != null) await hold.future;
     if (failPostsWith != null) throw failPostsWith!;
+    if (path == '/inspections') return {'inspection': inspectionPayload};
     if (path == '/corrective_actions') {
       final input = body['corrective_action'] as Map<String, dynamic>;
       final created = {

@@ -14,6 +14,7 @@ class AuthState extends ChangeNotifier {
 
   bool get signedIn => apiClient.token != null;
   bool get isAdmin => user?['role'] == 'admin';
+  int? get userId => user?['id'] as int?;
   String? get role => user?['role'] as String?;
 
   Future<void> restore() async {
