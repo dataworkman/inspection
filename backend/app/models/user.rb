@@ -3,9 +3,9 @@ class User < ApplicationRecord
 
   belongs_to :organization, optional: true
   has_many :inspections, dependent: :restrict_with_exception
+  has_many :api_tokens, dependent: :delete_all
 
   before_validation :normalize_email
-  before_create :issue_api_token
 
   validates :name, presence: true
   validates :email, presence: true, uniqueness: { case_sensitive: false }
@@ -27,17 +27,9 @@ class User < ApplicationRecord
     { id: id, organization_id: organization_id, name: name, email: email, role: role, active: active }
   end
 
-  def rotate_api_token!
-    update!(api_token: SecureRandom.hex(32))
-  end
-
   private
 
   def normalize_email
     self.email = email.to_s.strip.downcase
-  end
-
-  def issue_api_token
-    self.api_token ||= SecureRandom.hex(32)
   end
 end

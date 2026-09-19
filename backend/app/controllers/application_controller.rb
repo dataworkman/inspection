@@ -7,15 +7,17 @@ class ApplicationController < ActionController::API
 
   private
 
-  attr_reader :current_user
+  attr_reader :current_user, :current_api_token
 
   def authenticate_user!
-    user = authenticate_with_http_token { |token, _options| token.present? ? User.find_by(api_token: token) : nil }
+    token = authenticate_with_http_token { |plaintext, _options| ApiToken.authenticate(plaintext) }
+    user = token&.user
 
     return render_unauthorized("invalid or missing token") if user.nil?
     return render_unauthorized("account is deactivated") unless user.active?
     return render json: { error: "user is not assigned to an organization" }, status: :forbidden if user.organization_id.nil?
 
+    @current_api_token = token
     @current_user = user
   end
 
