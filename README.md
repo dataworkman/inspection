@@ -98,7 +98,9 @@ mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://<host>
 | --- | --- |
 | `admin` | Everything inside their organization: stores, templates, dashboard, all inspections, all corrective actions. |
 | `inspector` | Start and complete their own inspections (answers, photos, submit); create corrective actions on them and update actions on inspections they can see. |
-| `store_manager` | Read stores/templates. See only corrective actions assigned to them and move those to `In Progress` or `Resolved`. Cannot run inspections or mark actions `Verified`. |
+| `store_manager` | Works for one store (`users.store_id`, required for this role). Sees only that store, its finished inspections and history, and all of its corrective actions, and can move those to `In Progress` or `Resolved`. Cannot run inspections, mark actions `Verified` or open the dashboard. A manager with no store assigned sees nothing. |
+
+Admins assign a manager's store and (de)activate accounts with `GET /api/v1/users` and `PATCH /api/v1/users/:id` (`store_id`, `active` only; they cannot deactivate themselves or change roles or emails). Item results are computed: an item passes at 70% of its points or more.
 
 Every request is scoped to the caller's organization. Deactivated users and users without an organization are rejected. Submitted inspections are read-only (409).
 

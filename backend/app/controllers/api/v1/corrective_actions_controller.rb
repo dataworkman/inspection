@@ -3,7 +3,7 @@ module Api
     class CorrectiveActionsController < BaseController
       before_action :require_inspector!, only: :create
 
-      # Store managers may only move an action they are assigned to between
+      # Store managers may only move an action of their store between
       # these states; closing it out (Verified) is up to an admin/inspector.
       MANAGER_STATUSES = [ "In Progress", "Resolved" ].freeze
 
@@ -41,7 +41,7 @@ module Api
       def visible_corrective_actions
         scope = organization_scope(CorrectiveAction)
         return scope if current_user.admin?
-        return scope.where(assigned_to_id: current_user.id) if current_user.store_manager?
+        return scope.where(store_id: current_user.store_id) if current_user.store_manager?
 
         scope.where(inspection_id: visible_inspections.select(:id)).or(scope.where(assigned_to_id: current_user.id))
       end

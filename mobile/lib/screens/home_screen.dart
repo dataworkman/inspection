@@ -232,7 +232,10 @@ class _StoreListViewState extends State<StoreListView> {
   @override
   Widget build(BuildContext context) {
     final inspections = context.watch<InspectionState>();
-    final userId = context.read<AuthState>().userId;
+    final auth = context.read<AuthState>();
+    final userId = auth.userId;
+    // Store managers follow their store's results; they do not run inspections.
+    final canInspect = auth.role != 'store_manager';
     // Without a connection, unfinished inspections saved on this device can
     // still be continued.
     final savedOnDevice =
@@ -249,7 +252,8 @@ class _StoreListViewState extends State<StoreListView> {
           const SizedBox(height: 12),
         ],
         for (final raw in inspections.stores)
-          _storeCard(context, inspections, raw as Map<String, dynamic>, userId),
+          _storeCard(context, inspections, raw as Map<String, dynamic>, userId,
+              canInspect: canInspect),
       ],
     );
   }
@@ -289,7 +293,8 @@ class _StoreListViewState extends State<StoreListView> {
   }
 
   Widget _storeCard(BuildContext context, InspectionState inspections,
-      Map<String, dynamic> store, int? userId) {
+      Map<String, dynamic> store, int? userId,
+      {required bool canInspect}) {
     final template = inspections.templates.isEmpty
         ? null
         : inspections.templates.first as Map<String, dynamic>;
@@ -310,57 +315,59 @@ class _StoreListViewState extends State<StoreListView> {
           padding: const EdgeInsets.only(top: 4),
           child: Text('${store['store_code']} - ${store['address']}'),
         ),
-        trailing: busy
-            ? const SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (open != null) ...[
-                    FilledButton.icon(
-                      onPressed: _busyStoreId != null
-                          ? null
-                          : () => _open(
-                              context,
-                              storeId,
-                              () => inspections
-                                  .resumeInspection(open['id'] as int),
-                              'resume'),
-                      icon: const Icon(Icons.play_circle),
-                      label: const Text('Resume'),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: 'More',
-                      enabled: templateId != null && _busyStoreId == null,
-                      onSelected: (_) => _open(
-                          context,
-                          storeId,
-                          () =>
-                              inspections.startInspection(storeId, templateId!),
-                          'start'),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                            value: 'new',
-                            child: Text('Start a new inspection')),
-                      ],
-                    ),
-                  ] else
-                    FilledButton.icon(
-                      onPressed: templateId == null || _busyStoreId != null
-                          ? null
-                          : () => _open(
+        trailing: !canInspect
+            ? null
+            : busy
+                ? const SizedBox.square(
+                    dimension: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (open != null) ...[
+                        FilledButton.icon(
+                          onPressed: _busyStoreId != null
+                              ? null
+                              : () => _open(
+                                  context,
+                                  storeId,
+                                  () => inspections
+                                      .resumeInspection(open['id'] as int),
+                                  'resume'),
+                          icon: const Icon(Icons.play_circle),
+                          label: const Text('Resume'),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: 'More',
+                          enabled: templateId != null && _busyStoreId == null,
+                          onSelected: (_) => _open(
                               context,
                               storeId,
                               () => inspections.startInspection(
-                                  storeId, templateId),
+                                  storeId, templateId!),
                               'start'),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Start'),
-                    ),
-                ],
-              ),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                                value: 'new',
+                                child: Text('Start a new inspection')),
+                          ],
+                        ),
+                      ] else
+                        FilledButton.icon(
+                          onPressed: templateId == null || _busyStoreId != null
+                              ? null
+                              : () => _open(
+                                  context,
+                                  storeId,
+                                  () => inspections.startInspection(
+                                      storeId, templateId),
+                                  'start'),
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Start'),
+                        ),
+                    ],
+                  ),
       ),
     );
   }

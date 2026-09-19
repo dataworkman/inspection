@@ -386,12 +386,22 @@ void main() {
         'In Progress');
   }, skip: skipReason);
 
-  test('a store manager only sees and moves what is assigned to them',
+  test('a store manager follows their own store and moves its actions along',
       () async {
     manager = Device();
     await manager.login('manager@bakery-inspection.test');
-    await manager.state.refreshAll();
+    final managerId = manager.auth.userId!;
+    final ownStoreId = manager.auth.user!['store_id'] as int;
+    // Leave the demo data as it was found.
+    addTearDown(() => admin.api.patch('/users/$managerId', {
+          'user': {'store_id': ownStoreId},
+        }));
 
+    // Their own store is not this run's store: none of its data is visible.
+    await manager.state.refreshAll();
+    expect(
+        manager.state.stores.cast<Map<String, dynamic>>().map((s) => s['id']),
+        [ownStoreId]);
     expect(
         manager.state.actions.cast<Map<String, dynamic>>().map((a) => a['id']),
         isNot(contains(actionId)));
@@ -400,10 +410,21 @@ void main() {
       throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 403)),
     );
 
-    await admin.api.patch('/corrective_actions/$actionId', {
-      'corrective_action': {'assigned_to_id': manager.auth.userId},
+    // An admin moves the manager to this run's store.
+    await admin.api.patch('/users/$managerId', {
+      'user': {'store_id': storeId},
     });
-    await manager.state.loadActions();
+    await manager.state.refreshAll();
+
+    expect(
+        manager.state.stores.cast<Map<String, dynamic>>().map((s) => s['id']),
+        [storeId]);
+    final history = manager.state.history.cast<Map<String, dynamic>>();
+    expect(history.map((h) => h['id']), contains(inspectionId));
+    expect(history.every((h) => h['status'] == 'submitted'), isTrue,
+        reason: 'unfinished inspections are not shown to managers');
+    expect((await manager.state.loadInspectionDetail(inspectionId))['status'],
+        'submitted');
     expect(
         manager.state.actions.cast<Map<String, dynamic>>().map((a) => a['id']),
         contains(actionId));

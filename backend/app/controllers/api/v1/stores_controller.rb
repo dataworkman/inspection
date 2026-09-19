@@ -2,11 +2,11 @@ module Api
   module V1
     class StoresController < BaseController
       def index
-        render json: { stores: organization_scope(Store).active.order(:name).map(&:as_api_json) }
+        render json: { stores: visible_stores.active.order(:name).map(&:as_api_json) }
       end
 
       def show
-        render json: { store: organization_scope(Store).find(params[:id]).as_api_json }
+        render json: { store: visible_stores.find(params[:id]).as_api_json }
       end
 
       def create
@@ -25,7 +25,7 @@ module Api
       end
 
       def inspection_history
-        store = organization_scope(Store).find(params[:id])
+        store = visible_stores.find(params[:id])
         inspections = store.inspections.submitted.latest_submitted.includes(:store, :inspection_template, :inspector, :user).to_a
         render json: {
           store: store.as_api_json,

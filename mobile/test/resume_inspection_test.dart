@@ -200,6 +200,31 @@ void main() {
     });
   });
 
+  group('store managers', () {
+    testWidgets('see their store but cannot start or resume inspections',
+        (tester) async {
+      setUpState(history: [
+        _summary(id: 12, status: 'in_progress', storeId: 1, inspectorId: _me),
+      ]);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: state),
+            ChangeNotifierProvider(
+                create: (_) => AuthState(api)
+                  ..user = {'id': _me, 'role': 'store_manager', 'store_id': 1}),
+          ],
+          child: const MaterialApp(home: Scaffold(body: StoreListView())),
+        ),
+      );
+
+      expect(find.text('Downtown'), findsOneWidget);
+      expect(find.text('Start'), findsNothing);
+      expect(find.text('Resume'), findsNothing);
+      expect(find.byTooltip('More'), findsNothing);
+    });
+  });
+
   group('history', () {
     testWidgets('an unfinished own inspection opens for editing',
         (tester) async {

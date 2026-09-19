@@ -8,9 +8,8 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     @other_admin = create_user(@other_org, "admin", "admin-b@example.com")
     @inspector = create_user(@org, "inspector", "inspector-1@example.com")
     @other_inspector = create_user(@org, "inspector", "inspector-2@example.com")
-    @manager = create_user(@org, "store_manager", "manager@example.com")
-
     @store = @org.stores.create!(name: "Downtown", store_code: "DT-1")
+    @manager = create_user(@org, "store_manager", "manager@example.com", store: @store)
     @template = build_template(@org)
     @question = @template.inspection_questions.first
   end
@@ -144,7 +143,7 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
-  test "store managers only see and progress corrective actions assigned to them" do
+  test "store managers see and progress the corrective actions of their store" do
     inspector_token = login(@inspector)
     inspection_id, response_id = start_inspection(inspector_token)
     assigned_id = create_action(inspector_token, inspection_id, response_id, assigned_to_id: @manager.id)
@@ -152,19 +151,16 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
     manager_token = login(@manager)
 
     get "/api/v1/corrective_actions", headers: auth_headers(manager_token)
-    assert_equal [ assigned_id ], response.parsed_body["corrective_actions"].pluck("id")
-
-    patch "/api/v1/corrective_actions/#{unassigned_id}", headers: auth_headers(manager_token), params: { corrective_action: { status: "Resolved" } }
-    assert_response :not_found
+    assert_equal [ assigned_id, unassigned_id ].sort, response.parsed_body["corrective_actions"].pluck("id").sort
 
     patch "/api/v1/corrective_actions/#{assigned_id}", headers: auth_headers(manager_token), params: { corrective_action: { status: "Verified" } }
     assert_response :forbidden
 
-    patch "/api/v1/corrective_actions/#{assigned_id}",
+    patch "/api/v1/corrective_actions/#{unassigned_id}",
       headers: auth_headers(manager_token),
       params: { corrective_action: { status: "Resolved", title: "renamed", severity: "Low" } }
     assert_response :success
-    action = CorrectiveAction.find(assigned_id)
+    action = CorrectiveAction.find(unassigned_id)
     assert_equal "Resolved", action.status
     assert_not_equal "renamed", action.title
     assert_equal "High", action.severity
@@ -215,8 +211,8 @@ class ApiV1PermissionsTest < ActionDispatch::IntegrationTest
 
   private
 
-  def create_user(organization, role, email)
-    User.create!(organization: organization, name: email, email: email, password: "password123", role: role)
+  def create_user(organization, role, email, store: nil)
+    User.create!(organization: organization, name: email, email: email, password: "password123", role: role, store: store)
   end
 
   def build_template(organization)
