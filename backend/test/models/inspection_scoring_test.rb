@@ -110,4 +110,28 @@ class InspectionScoringTest < ActiveSupport::TestCase
 
     assert_equal 80.0, @inspection.reload.total_score.to_f
   end
+
+  test "an inspection with nothing scored has no grade until it is submitted" do
+    assert_nil @inspection.reload.grade
+
+    @responses[@small_question].update!(score: 5)
+    assert_equal "Excellent", @inspection.reload.grade
+  end
+
+  test "an inspection submitted with a zero score is graded" do
+    @small_question.update!(required: false)
+    @big_questions.each { |question| question.update!(required: false) }
+    @inspection.submit!
+
+    assert_equal 0.0, @inspection.reload.total_score.to_f
+    assert_equal "Critical", @inspection.grade
+  end
+
+  test "responses tell the app which requirements apply" do
+    @small_question.update!(photo_required: true, comment_required: true, required: false)
+
+    payload = @responses[@small_question].reload.as_api_json
+
+    assert_equal [ false, true, true ], payload.values_at(:required, :photo_required, :comment_required)
+  end
 end

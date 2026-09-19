@@ -112,6 +112,8 @@ class Inspection < ApplicationRecord
 
   def grade
     return nil if total_score.blank?
+    # Nothing scored yet: an unstarted inspection is not "Critical".
+    return nil if total_score.zero? && status != "submitted"
     return "Excellent" if total_score >= 90
     return "Good" if total_score >= 80
     return "Needs Improvement" if total_score >= 70
