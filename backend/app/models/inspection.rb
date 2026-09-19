@@ -15,6 +15,7 @@ class Inspection < ApplicationRecord
 
   scope :recent, -> { order(created_at: :desc) }
   scope :submitted, -> { where(status: "submitted") }
+  scope :latest_submitted, -> { order(submitted_at: :desc, id: :desc) }
   scope :with_ordered_detail, -> {
     includes(
       :store,
