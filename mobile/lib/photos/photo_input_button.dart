@@ -1,2 +1,2 @@
 export 'photo_input_button_stub.dart'
-    if (dart.library.html) 'photo_input_button_web.dart';
+    if (dart.library.js_interop) 'photo_input_button_web.dart';

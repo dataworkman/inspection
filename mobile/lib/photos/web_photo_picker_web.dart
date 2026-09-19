@@ -1,14 +1,17 @@
 import 'dart:async';
-// TODO: migrate to package:web + dart:js_interop.
-// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
-import 'dart:html' as html;
-import 'dart:typed_data';
+import 'dart:js_interop';
 
 import 'package:image_picker/image_picker.dart';
+import 'package:web/web.dart' as web;
 
+import 'web_file.dart';
+
+/// Opens the browser's file chooser for one image. Completes with null when
+/// the chooser is dismissed.
 Future<XFile?> pickWebPhoto() {
   final completer = Completer<XFile?>();
-  final input = html.FileUploadInputElement()
+  final input = web.document.createElement('input') as web.HTMLInputElement
+    ..type = 'file'
     ..accept = 'image/*'
     ..multiple = false;
 
@@ -17,44 +20,23 @@ Future<XFile?> pickWebPhoto() {
     if (!completer.isCompleted) completer.complete(file);
   }
 
-  input.onChange.first.then((_) {
-    final files = input.files;
-    if (files == null || files.isEmpty) {
-      complete(null);
-      return;
-    }
-    final file = files.first;
-
-    final reader = html.FileReader();
-    reader.onError.first.then((_) {
-      input.remove();
-      if (!completer.isCompleted) {
-        completer.completeError(reader.error ?? 'Photo read failed');
-      }
-    });
-    reader.onLoadEnd.first.then((_) {
-      final result = reader.result;
-      final bytes = switch (result) {
-        ByteBuffer buffer => buffer.asUint8List(),
-        Uint8List bytes => bytes,
-        _ => null,
-      };
-      if (bytes == null) {
+  input.addEventListener(
+    'change',
+    (web.Event _) {
+      final file = input.files?.item(0);
+      if (file == null) {
         complete(null);
         return;
       }
+      xFileFromWebFile(file).then(complete, onError: (Object error) {
+        input.remove();
+        if (!completer.isCompleted) completer.completeError(error);
+      });
+    }.toJS,
+  );
+  input.addEventListener('cancel', ((web.Event _) => complete(null)).toJS);
 
-      complete(XFile.fromData(
-        bytes,
-        name: file.name,
-        mimeType: file.type.isEmpty ? null : file.type,
-        length: file.size,
-      ));
-    });
-    reader.readAsArrayBuffer(file);
-  });
-
-  html.document.body?.append(input);
+  web.document.body?.append(input);
   input.click();
 
   return completer.future;
