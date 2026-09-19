@@ -14,8 +14,11 @@ module Api
       def create
         return unless require_admin!
 
-        template = current_user.organization.inspection_templates.create!(template_params.except(:categories))
-        upsert_categories(template, template_params[:categories] || [])
+        template = InspectionTemplate.transaction do
+          created = current_user.organization.inspection_templates.create!(template_params.except(:categories))
+          created.apply_categories!(template_params[:categories] || [])
+          created
+        end
         render json: { inspection_template: template.reload.as_api_json(include_questions: true) }, status: :created
       end
 
@@ -23,9 +26,21 @@ module Api
         return unless require_admin!
 
         template = organization_scope(InspectionTemplate).find(params[:id])
-        template.update!(template_params.except(:categories))
-        upsert_categories(template, template_params[:categories]) if template_params.key?(:categories)
-        render json: { inspection_template: template.reload.as_api_json(include_questions: true) }
+        attributes = template_params.except(:categories)
+
+        # Editing questions of a template that inspections already use creates a
+        # new version instead, so those inspections keep the template they were
+        # started with.
+        if template_params.key?(:categories) && template.used?
+          successor = template.create_next_version!(attributes, template_params[:categories])
+          return render json: { inspection_template: successor.reload.as_api_json(include_questions: true), versioned: true }
+        end
+
+        InspectionTemplate.transaction do
+          template.update!(attributes)
+          template.apply_categories!(template_params[:categories]) if template_params.key?(:categories)
+        end
+        render json: { inspection_template: template.reload.as_api_json(include_questions: true), versioned: false }
       end
 
       private
@@ -54,20 +69,6 @@ module Api
             ]
           ]
         )
-      end
-
-      def upsert_categories(template, categories)
-        categories.each do |category_params|
-          category = template.inspection_categories.find_or_initialize_by(id: category_params[:id])
-          category.assign_attributes(category_params.except(:id, :questions))
-          category.save!
-
-          Array(category_params[:questions]).each do |question_params|
-            question = category.inspection_questions.find_or_initialize_by(id: question_params[:id])
-            question.assign_attributes(question_params.except(:id))
-            question.save!
-          end
-        end
       end
     end
   end
