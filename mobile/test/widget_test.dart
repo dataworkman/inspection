@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:store_inspection_mobile/api/api_client.dart';
 import 'package:store_inspection_mobile/auth/auth_state.dart';
@@ -16,7 +17,10 @@ import 'support/fakes.dart';
 
 void main() {
   testWidgets('shows login screen', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+    await tester.pumpWidget(ChangeNotifierProvider(
+      create: (_) => AuthState(RecordingApiClient()),
+      child: const MaterialApp(home: LoginScreen()),
+    ));
 
     expect(find.text('Store Inspection'), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(2));
@@ -536,5 +540,95 @@ void main() {
 
       expect(find.text('No corrective actions'), findsOneWidget);
     });
+  });
+
+  group('logging out', () {
+    late RecordingApiClient api;
+    late InspectionState state;
+    late AuthState auth;
+
+    Future<void> pumpHome(WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({'api_token': 'secret'});
+      api = RecordingApiClient()..token = 'secret';
+      state = InspectionState(api, NoDraftStorage())
+        ..activeInspection = {'id': 7, 'responses': []};
+      auth = AuthState(api)..user = {'id': 5, 'role': 'inspector'};
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: state),
+            ChangeNotifierProvider.value(value: auth),
+          ],
+          child: const MaterialApp(home: HomeScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('logs out straight away when nothing is unsent',
+        (tester) async {
+      await pumpHome(tester);
+
+      await tester.tap(find.byTooltip('Log out'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unsent changes'), findsNothing);
+      expect(api.requests, contains('DELETE /auth/logout'));
+      expect(auth.signedIn, isFalse);
+    });
+
+    testWidgets('sends waiting edits before logging out', (tester) async {
+      await pumpHome(tester);
+      state.scheduleCommentSave('last words');
+
+      await tester.tap(find.byTooltip('Log out'));
+      await tester.pumpAndSettle();
+
+      expect(api.patchBodies('/inspections/7'), hasLength(1));
+      expect(api.requests.indexOf('PATCH /inspections/7'),
+          lessThan(api.requests.indexOf('DELETE /auth/logout')));
+      expect(auth.signedIn, isFalse);
+    });
+
+    testWidgets('warns when edits cannot be sent and lets the user stay',
+        (tester) async {
+      await pumpHome(tester);
+      api.failPatchesWith = ApiException('Cannot reach the server', 0);
+      state.scheduleCommentSave('unsent');
+
+      await tester.tap(find.byTooltip('Log out'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unsent changes'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(auth.signedIn, isTrue);
+      expect(api.requests, isNot(contains('DELETE /auth/logout')));
+    });
+
+    testWidgets('can log out anyway, discarding the unsent edits',
+        (tester) async {
+      await pumpHome(tester);
+      api.failPatchesWith = ApiException('Cannot reach the server', 0);
+      state.scheduleCommentSave('unsent');
+
+      await tester.tap(find.byTooltip('Log out'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log out anyway'));
+      await tester.pumpAndSettle();
+
+      expect(auth.signedIn, isFalse);
+    });
+  });
+
+  testWidgets('the login screen explains an expired session', (tester) async {
+    final auth = AuthState(RecordingApiClient())
+      ..notice = 'Your session expired. Please sign in again.';
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: auth, child: const MaterialApp(home: LoginScreen())));
+
+    expect(find.text('Your session expired. Please sign in again.'),
+        findsOneWidget);
   });
 }

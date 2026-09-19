@@ -42,10 +42,22 @@ class RecordingApiClient extends ApiClient {
     bodies.add(const {});
     if (failGetsWith != null) throw failGetsWith!;
     if (path == '/inspections') return {'inspections': historyPayload};
+    if (path == '/stores') return {'stores': []};
+    if (path == '/inspection_templates') return {'inspection_templates': []};
     if (path == '/corrective_actions') {
       return {'corrective_actions': actionsPayload};
     }
     return {'inspection': inspectionPayload};
+  }
+
+  Object? failDeletesWith;
+
+  @override
+  Future<Map<String, dynamic>> delete(String path) async {
+    requests.add('DELETE $path');
+    bodies.add(const {});
+    if (failDeletesWith != null) throw failDeletesWith!;
+    return {};
   }
 
   @override
@@ -119,12 +131,17 @@ class RecordingApiClient extends ApiClient {
 }
 
 class NoDraftStorage extends LocalDraftStorage {
+  int clearAllCalls = 0;
+
   @override
   Future<void> saveDraft(
       int inspectionId, Map<String, dynamic> payload) async {}
 
   @override
   Future<void> clearDraft(int inspectionId) async {}
+
+  @override
+  Future<void> clearAll() async => clearAllCalls++;
 }
 
 /// Returns a 1x1 PNG instead of opening the camera or gallery.

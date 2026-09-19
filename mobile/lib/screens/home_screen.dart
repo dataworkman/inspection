@@ -28,6 +28,42 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _logout() async {
+    final inspections = context.read<InspectionState>();
+    final auth = context.read<AuthState>();
+    if (inspections.hasPendingSaves) {
+      // Try to send what is still waiting; only ask when that does not work.
+      try {
+        await inspections
+            .flushPendingSaves()
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {}
+      if (inspections.hasPendingSaves) {
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Unsent changes'),
+            content: const Text(
+                'Some of your changes could not be sent and will be lost if you log out.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Log out anyway'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+    }
+    await auth.logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
@@ -43,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Store Inspections'),
         actions: [
           IconButton(
-              onPressed: auth.logout,
+              onPressed: _logout,
               icon: const Icon(Icons.logout),
               tooltip: 'Log out')
         ],

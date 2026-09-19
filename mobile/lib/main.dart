@@ -18,22 +18,32 @@ Future<void> main() async {
   const baseUrl = String.fromEnvironment('API_BASE_URL',
       defaultValue: 'http://localhost:3002');
   final apiClient = ApiClient(baseUrl: baseUrl);
+  final inspections = InspectionState(apiClient, LocalDraftStorage());
+  final auth = AuthState(
+    apiClient,
+    onSignedOut: ({required sessionExpired}) =>
+        inspections.reset(clearLocalData: !sessionExpired),
+  )..restore();
 
-  runApp(StoreInspectionApp(apiClient: apiClient));
+  runApp(StoreInspectionApp(auth: auth, inspections: inspections));
 }
 
 class StoreInspectionApp extends StatelessWidget {
-  const StoreInspectionApp({super.key, required this.apiClient});
+  const StoreInspectionApp({
+    super.key,
+    required this.auth,
+    required this.inspections,
+  });
 
-  final ApiClient apiClient;
+  final AuthState auth;
+  final InspectionState inspections;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthState(apiClient)..restore()),
-        ChangeNotifierProvider(
-            create: (_) => InspectionState(apiClient, LocalDraftStorage())),
+        ChangeNotifierProvider.value(value: auth),
+        ChangeNotifierProvider.value(value: inspections),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,

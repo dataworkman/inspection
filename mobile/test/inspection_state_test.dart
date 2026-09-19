@@ -194,4 +194,106 @@ void main() {
       expect(state.activeInspection!['id'], 8);
     });
   });
+
+  group('reset', () {
+    late NoDraftStorage drafts;
+
+    void inFakeTimeWithDrafts(void Function(FakeAsync async) body) {
+      fakeAsync((async) {
+        api = RecordingApiClient();
+        drafts = NoDraftStorage();
+        state = InspectionState(api, drafts)
+          ..activeInspection = {'id': 7, 'responses': []}
+          ..stores = [
+            {'id': 1}
+          ]
+          ..templates = [
+            {'id': 2}
+          ]
+          ..history = [
+            {'id': 3}
+          ]
+          ..actions = [
+            {'id': 4}
+          ]
+          ..dashboard = {'submitted_inspections': 1};
+        body(async);
+      });
+    }
+
+    test('forgets the previous user\'s data', () {
+      inFakeTimeWithDrafts((async) {
+        state.reset();
+
+        expect(state.stores, isEmpty);
+        expect(state.templates, isEmpty);
+        expect(state.history, isEmpty);
+        expect(state.actions, isEmpty);
+        expect(state.dashboard, isNull);
+        expect(state.activeInspection, isNull);
+        expect(state.saveError, isNull);
+      });
+    });
+
+    test('queued edits are dropped and their timers never fire', () {
+      inFakeTimeWithDrafts((async) {
+        scheduleResponse(comment: 'typing');
+        state.scheduleCommentSave('note');
+        expect(state.hasPendingSaves, isTrue);
+
+        state.reset();
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+
+        expect(api.requests, isEmpty);
+        expect(state.hasPendingSaves, isFalse);
+      });
+    });
+
+    test('wipes saved drafts on logout but keeps them when the session expired',
+        () {
+      inFakeTimeWithDrafts((async) {
+        state.reset(clearLocalData: false);
+        expect(drafts.clearAllCalls, 0);
+
+        state.reset(clearLocalData: true);
+        expect(drafts.clearAllCalls, 1);
+      });
+    });
+
+    test('a save still in flight cannot bring old edits back afterwards', () {
+      inFakeTimeWithDrafts((async) {
+        final gate = Completer<void>();
+        api.holdNextPatch = gate;
+        scheduleResponse(passed: true, immediate: true);
+        async.flushMicrotasks();
+
+        state.reset();
+        api.failPatchesWith = ApiException('Cannot reach the server', 0);
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(state.saveError, isNull);
+        expect(state.hasPendingSaves, isFalse);
+      });
+    });
+  });
+
+  test('hasPendingSaves reflects queued and failed edits', () {
+    inFakeTime((async) {
+      expect(state.hasPendingSaves, isFalse);
+
+      scheduleResponse(comment: 'typing');
+      expect(state.hasPendingSaves, isTrue);
+
+      async.elapse(InspectionState.responseSaveDelay * 2);
+      async.flushMicrotasks();
+      expect(state.hasPendingSaves, isFalse);
+
+      api.failPatchesWith = ApiException('Cannot reach the server', 0);
+      scheduleResponse(comment: 'again', immediate: true);
+      async.flushMicrotasks();
+      expect(state.hasPendingSaves, isTrue);
+    });
+  });
 }

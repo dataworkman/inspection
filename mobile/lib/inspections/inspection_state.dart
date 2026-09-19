@@ -62,6 +62,44 @@ class InspectionState extends ChangeNotifier {
   /// Message of the last failed background save; cleared once saving works again.
   String? saveError;
 
+  // Bumped by reset(); saves that started before it must not touch new state.
+  int _epoch = 0;
+
+  bool get hasPendingSaves =>
+      _pendingResponses.isNotEmpty ||
+      _pendingComment != null ||
+      _inFlight.isNotEmpty;
+
+  /// Forgets everything belonging to the signed-in user (after logging out or
+  /// when the session ended). [clearLocalData] also wipes the saved drafts on
+  /// the device; it is false when the session merely expired, so unsent work
+  /// survives until the same user signs in again.
+  void reset({bool clearLocalData = true}) {
+    _epoch++;
+    for (final timer in _responseTimers.values) {
+      timer.cancel();
+    }
+    _responseTimers.clear();
+    _commentTimer?.cancel();
+    _commentTimer = null;
+    _pendingResponses.clear();
+    _pendingComment = null;
+    _pendingCommentInspectionId = null;
+    saveError = null;
+    stores = [];
+    templates = [];
+    history = [];
+    actions = [];
+    dashboard = null;
+    activeInspection = null;
+    if (clearLocalData) {
+      drafts.clearAll().catchError((Object error) {
+        debugPrint('Clearing drafts failed: $error');
+      });
+    }
+    notifyListeners();
+  }
+
   List<dynamic> stores = [];
   List<dynamic> templates = [];
   List<dynamic> history = [];
@@ -202,6 +240,7 @@ class InspectionState extends ChangeNotifier {
   Future<void> _runResponseSave(int responseId) async {
     final snapshot = _pendingResponses.remove(responseId);
     if (snapshot == null) return;
+    final epoch = _epoch;
     try {
       await updateResponse(
         responseId,
@@ -213,8 +252,10 @@ class InspectionState extends ChangeNotifier {
       );
       _clearSaveError();
     } catch (error) {
-      _pendingResponses.putIfAbsent(responseId, () => snapshot);
-      _reportSaveError(error);
+      if (epoch == _epoch) {
+        _pendingResponses.putIfAbsent(responseId, () => snapshot);
+        _reportSaveError(error);
+      }
       rethrow;
     }
   }
@@ -237,13 +278,16 @@ class InspectionState extends ChangeNotifier {
     final inspectionId = _pendingCommentInspectionId;
     if (comment == null || inspectionId == null) return;
     _pendingComment = null;
+    final epoch = _epoch;
     try {
       await updateComment(comment, inspectionId: inspectionId);
       _clearSaveError();
     } catch (error) {
-      _pendingComment ??= comment;
-      _pendingCommentInspectionId ??= inspectionId;
-      _reportSaveError(error);
+      if (epoch == _epoch) {
+        _pendingComment ??= comment;
+        _pendingCommentInspectionId ??= inspectionId;
+        _reportSaveError(error);
+      }
       rethrow;
     }
   }

@@ -36,6 +36,11 @@ class LocalDraftStorage {
     );
   }
 
+  Future<void> clearAll() async {
+    final db = await database;
+    await db.delete('drafts');
+  }
+
   Future<void> clearDraft(int inspectionId) async {
     final db = await database;
     await db.delete('drafts',
