@@ -82,6 +82,25 @@ class ApiV1DashboardTest < ActionDispatch::IntegrationTest
     assert_equal [ "Critical action", "Low score", "Overdue action", "Sharp drop" ], flagged.sort
   end
 
+  test "each flagged store says why" do
+    low = make_store("Low score")
+    submit_inspection(low, score: 65)
+    both = make_store("Both")
+    submit_inspection(both, score: 60)
+    add_action(both, severity: "Critical", due_date: 2.days.ago.to_date)
+    drop = make_store("Sharp drop")
+    submit_inspection(drop, score: 95, submitted_at: 10.days.ago)
+    submit_inspection(drop, score: 84, submitted_at: 1.day.ago)
+    make_store("Fine")
+
+    reasons = dashboard["store_ranking"].to_h { |row| [ row.dig("store", "name"), row["attention_reasons"] ] }
+
+    assert_equal [ "low_score" ], reasons["Low score"]
+    assert_equal [ "critical_action", "low_score", "overdue_action" ], reasons["Both"]
+    assert_equal [ "score_drop" ], reasons["Sharp drop"]
+    assert_equal [], reasons["Fine"]
+  end
+
   test "open and critical action counts are reported per store and overall" do
     store = make_store("Busy")
     submit_inspection(store, score: 90)

@@ -49,6 +49,8 @@ module Api
           latest_score = latest&.second&.to_f
           previous_score = previous&.second&.to_f
 
+          reasons = attention_reasons(latest_score, previous_score, critical_counts.fetch(store.id, 0), overdue_counts.fetch(store.id, 0))
+
           {
             store: store.as_api_json,
             submitted_inspections: scores.size,
@@ -58,18 +60,21 @@ module Api
             score_trend: scores.first(TREND_LENGTH).map { |_, score, submitted_at| { date: submitted_at&.to_date, score: score.to_f } },
             open_issues: open_counts.fetch(store.id, 0),
             critical_issues: critical_counts.fetch(store.id, 0),
-            attention_required: attention_required?(latest_score, previous_score, critical_counts.fetch(store.id, 0), overdue_counts.fetch(store.id, 0)),
+            attention_required: reasons.any?,
+            attention_reasons: reasons,
             last_submitted_at: latest&.third
           }
         end
       end
 
-      def attention_required?(latest_score, previous_score, critical_open, overdue_open)
-        return true if latest_score && latest_score < BELOW_STANDARD
-        return true if critical_open.positive?
-        return true if overdue_open.positive?
-
-        latest_score && previous_score && (latest_score - previous_score) <= -SCORE_DROP_ALERT
+      # Why a store needs attention, most severe first. The app shows these.
+      def attention_reasons(latest_score, previous_score, critical_open, overdue_open)
+        reasons = []
+        reasons << "critical_action" if critical_open.positive?
+        reasons << "low_score" if latest_score && latest_score < BELOW_STANDARD
+        reasons << "overdue_action" if overdue_open.positive?
+        reasons << "score_drop" if latest_score && previous_score && (latest_score - previous_score) <= -SCORE_DROP_ALERT
+        reasons
       end
 
       # Best score first; stores that have not been inspected yet go last.
