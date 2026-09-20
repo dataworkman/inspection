@@ -42,6 +42,9 @@ void main() {
   late InspectionState state;
 
   Future<void> pumpHome(WidgetTester tester, {bool offline = false}) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({'api_token': 'secret'});
     api = RecordingApiClient()..token = 'secret';
     if (offline) api.failGetsWith = ApiException('Cannot reach the server', 0);
@@ -65,7 +68,7 @@ void main() {
     await pumpHome(tester, offline: true);
 
     expect(find.text('Cannot reach the server'), findsOneWidget);
-    expect(find.text('Saved on this device'), findsOneWidget);
+    expect(find.text('SAVED ON THIS DEVICE'), findsOneWidget);
     expect(find.text('Downtown'), findsOneWidget);
 
     await tester.tap(find.text('Resume'));
@@ -88,7 +91,7 @@ void main() {
       (tester) async {
     await pumpHome(tester);
 
-    expect(find.text('Saved on this device'), findsNothing);
+    expect(find.text('SAVED ON THIS DEVICE'), findsNothing);
     expect(find.text('Retry'), findsNothing);
   });
 
@@ -101,7 +104,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Cannot reach the server'), findsNothing);
-    expect(find.text('Saved on this device'), findsNothing);
+    expect(find.text('SAVED ON THIS DEVICE'), findsNothing);
     expect(state.loadError, isNull);
   });
 }

@@ -3,7 +3,27 @@ import 'package:provider/provider.dart';
 
 import '../auth/auth_state.dart';
 import '../inspections/inspection_state.dart';
-import 'inspection_screen.dart';
+import '../theme/app_theme.dart';
+import '../utils/format.dart';
+import '../widgets/content_width.dart';
+import 'actions_view.dart';
+import 'dashboard_view.dart';
+import 'history_view.dart';
+import 'stores_view.dart';
+
+export 'actions_view.dart' show ActionsView;
+export 'dashboard_view.dart' show DashboardView;
+export 'history_view.dart' show HistoryView;
+export 'stores_view.dart' show StoreListView;
+
+class _TabSpec {
+  const _TabSpec(this.title, this.icon, this.selectedIcon, this.page);
+
+  final String title;
+  final IconData icon;
+  final IconData selectedIcon;
+  final Widget page;
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -65,21 +85,25 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
     final inspections = context.watch<InspectionState>();
-    final pages = [
-      const StoreListView(),
-      const HistoryView(),
-      const ActionsView(),
-      if (auth.isAdmin) const DashboardView(),
+    final tabs = [
+      const _TabSpec('Stores', Icons.storefront_outlined, Icons.storefront,
+          StoreListView()),
+      const _TabSpec(
+          'History', Icons.history_outlined, Icons.history, HistoryView()),
+      const _TabSpec(
+          'Actions', Icons.task_alt_outlined, Icons.task_alt, ActionsView()),
+      if (auth.isAdmin)
+        const _TabSpec('Dashboard', Icons.dashboard_outlined, Icons.dashboard,
+            DashboardView()),
     ];
+    final current = tabs[_tab.clamp(0, tabs.length - 1)];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Store Inspections'),
+        title: Text(current.title),
         actions: [
-          IconButton(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-              tooltip: 'Log out')
+          _AccountMenu(user: auth.user, onLogout: _logout),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
       body: Column(
@@ -90,128 +114,31 @@ class _HomeScreenState extends State<HomeScreen> {
               onRetry: () =>
                   inspections.refreshAll(includeDashboard: auth.isAdmin),
             ),
-          Expanded(child: pages[_tab]),
+          Expanded(child: ContentWidth(child: current.page)),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: [
-          const NavigationDestination(
-              icon: Icon(Icons.storefront), label: 'Stores'),
-          const NavigationDestination(
-              icon: Icon(Icons.history), label: 'History'),
-          const NavigationDestination(
-              icon: Icon(Icons.task_alt), label: 'Actions'),
-          if (auth.isAdmin)
-            const NavigationDestination(
-                icon: Icon(Icons.dashboard), label: 'Dashboard'),
-        ],
-      ),
-    );
-  }
-}
-
-class ActionsView extends StatelessWidget {
-  const ActionsView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    return RefreshIndicator(
-      onRefresh: () => inspections.refreshAll(
-          includeDashboard: context.read<AuthState>().isAdmin),
-      child: inspections.actions.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(32),
-              children: const [
-                Center(child: Text('No corrective actions')),
-              ],
-            )
-          : ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-              itemCount: inspections.actions.length,
-              itemBuilder: (context, index) {
-                final action =
-                    inspections.actions[index] as Map<String, dynamic>;
-                final store = action['store'] as Map<String, dynamic>;
-                final due = action['due_date'];
-                return _ContentCard(
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: _StatusIcon(
-                      icon: Icons.report_problem,
-                      color: Theme.of(context).colorScheme.tertiary,
-                    ),
-                    title: Text(action['title'] as String,
-                        style: Theme.of(context).textTheme.titleMedium),
-                    subtitle: Text(
-                        '${store['name']} - ${action['severity']}${due == null ? '' : ' - due $due'}'),
-                    trailing: _Pill(label: action['status'].toString()),
-                    onTap: () => _showActionSheet(context, action),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.borderSoft)),
+        ),
+        // Tabs stay as wide as the content on big screens instead of spreading
+        // to the window edges.
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: NavigationBar(
+              selectedIndex: _tab.clamp(0, tabs.length - 1),
+              onDestinationSelected: (index) => setState(() => _tab = index),
+              destinations: [
+                for (final tab in tabs)
+                  NavigationDestination(
+                    icon: Icon(tab.icon),
+                    selectedIcon: Icon(tab.selectedIcon),
+                    label: tab.title,
                   ),
-                );
-              },
-            ),
-    );
-  }
-
-  void _showActionSheet(BuildContext context, Map<String, dynamic> action) {
-    final inspections = context.read<InspectionState>();
-    final messenger = ScaffoldMessenger.of(context);
-    final allowed = correctiveActionStatusesFor(context.read<AuthState>().role);
-    final current = action['status'].toString();
-    final assignee = action['assigned_to'] as Map<String, dynamic>?;
-    final description = action['description']?.toString() ?? '';
-
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(action['title'] as String,
-                  style: Theme.of(sheetContext).textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text([
-                (action['store'] as Map<String, dynamic>)['name'],
-                action['severity'],
-                if (action['due_date'] != null) 'due ${action['due_date']}',
-                if (assignee != null) 'assigned to ${assignee['name']}',
-              ].join(' - ')),
-              if (description.isNotEmpty && description != action['title']) ...[
-                const SizedBox(height: 8),
-                Text(description),
               ],
-              const Divider(height: 24),
-              Text('Set status',
-                  style: Theme.of(sheetContext).textTheme.titleSmall),
-              for (final status in allowed)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(status),
-                  trailing: status == current ? const Icon(Icons.check) : null,
-                  onTap: status == current
-                      ? null
-                      : () async {
-                          Navigator.of(sheetContext).pop();
-                          try {
-                            await inspections.updateActionStatus(
-                                action['id'] as int, status);
-                          } catch (error) {
-                            messenger.showSnackBar(SnackBar(
-                                content: Text(
-                                    'Could not update the action: $error')));
-                          }
-                        },
-                ),
-            ],
+            ),
           ),
         ),
       ),
@@ -219,335 +146,61 @@ class ActionsView extends StatelessWidget {
   }
 }
 
-class StoreListView extends StatefulWidget {
-  const StoreListView({super.key});
+/// The signed-in user: initials in the app bar, details and Log out in a menu.
+class _AccountMenu extends StatelessWidget {
+  const _AccountMenu({required this.user, required this.onLogout});
 
-  @override
-  State<StoreListView> createState() => _StoreListViewState();
-}
-
-class _StoreListViewState extends State<StoreListView> {
-  int? _busyStoreId;
+  final Map<String, dynamic>? user;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    final auth = context.read<AuthState>();
-    final userId = auth.userId;
-    // Store managers follow their store's results; they do not run inspections.
-    final canInspect = auth.role != 'store_manager';
-    // Without a connection, unfinished inspections saved on this device can
-    // still be continued.
-    final savedOnDevice =
-        inspections.loadError != null ? inspections.localDrafts : const [];
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-      children: [
-        if (savedOnDevice.isNotEmpty) ...[
-          Text('Saved on this device',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          for (final draft in savedOnDevice)
-            _savedDraftCard(context, inspections, draft),
-          const SizedBox(height: 12),
-        ],
-        for (final raw in inspections.stores)
-          _storeCard(context, inspections, raw as Map<String, dynamic>, userId,
-              canInspect: canInspect),
+    final theme = Theme.of(context);
+    final name = user?['name']?.toString();
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      offset: const Offset(0, 48),
+      onSelected: (value) {
+        if (value == 'logout') onLogout();
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name ?? 'Signed in', style: theme.textTheme.titleSmall),
+              if (user?['email'] != null)
+                Text(user!['email'].toString(),
+                    style: theme.textTheme.bodySmall),
+              if (roleLabel(user?['role'] as String?).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(roleLabel(user?['role'] as String?),
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: AppColors.primary)),
+                ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 20),
+              SizedBox(width: 12),
+              Text('Log out'),
+            ],
+          ),
+        ),
       ],
-    );
-  }
-
-  Widget _savedDraftCard(BuildContext context, InspectionState inspections,
-      Map<String, dynamic> draft) {
-    final store = draft['store'] as Map<String, dynamic>;
-    final busy = _busyStoreId == store['id'];
-    return _ContentCard(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: _StatusIcon(
-          icon: Icons.save,
-          color: Theme.of(context).colorScheme.secondary,
-        ),
-        title: Text(store['name'] as String,
-            style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Text('Unfinished - score ${draft['score'] ?? '-'}'),
-        trailing: busy
-            ? const SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : FilledButton.icon(
-                onPressed: _busyStoreId != null
-                    ? null
-                    : () => _open(
-                        context,
-                        store['id'] as int,
-                        () => inspections.resumeInspection(draft['id'] as int),
-                        'resume'),
-                icon: const Icon(Icons.play_circle),
-                label: const Text('Resume'),
-              ),
-      ),
-    );
-  }
-
-  Widget _storeCard(BuildContext context, InspectionState inspections,
-      Map<String, dynamic> store, int? userId,
-      {required bool canInspect}) {
-    final template = inspections.templates.isEmpty
-        ? null
-        : inspections.templates.first as Map<String, dynamic>;
-    final storeId = store['id'] as int;
-    final busy = _busyStoreId == storeId;
-    final open = inspections.openInspectionFor(storeId, userId);
-    final templateId = template?['id'] as int?;
-    return _ContentCard(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: _StatusIcon(
-          icon: Icons.storefront,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        title: Text(store['name'] as String,
-            style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text('${store['store_code']} - ${store['address']}'),
-        ),
-        trailing: !canInspect
-            ? null
-            : busy
-                ? const SizedBox.square(
-                    dimension: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (open != null) ...[
-                        FilledButton.icon(
-                          onPressed: _busyStoreId != null
-                              ? null
-                              : () => _open(
-                                  context,
-                                  storeId,
-                                  () => inspections
-                                      .resumeInspection(open['id'] as int),
-                                  'resume'),
-                          icon: const Icon(Icons.play_circle),
-                          label: const Text('Resume'),
-                        ),
-                        PopupMenuButton<String>(
-                          tooltip: 'More',
-                          enabled: templateId != null && _busyStoreId == null,
-                          onSelected: (_) => _open(
-                              context,
-                              storeId,
-                              () => inspections.startInspection(
-                                  storeId, templateId!),
-                              'start'),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                                value: 'new',
-                                child: Text('Start a new inspection')),
-                          ],
-                        ),
-                      ] else
-                        FilledButton.icon(
-                          onPressed: templateId == null || _busyStoreId != null
-                              ? null
-                              : () => _open(
-                                  context,
-                                  storeId,
-                                  () => inspections.startInspection(
-                                      storeId, templateId),
-                                  'start'),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Start'),
-                        ),
-                    ],
-                  ),
-      ),
-    );
-  }
-
-  Future<void> _open(
-    BuildContext context,
-    int storeId,
-    Future<void> Function() prepare,
-    String verb,
-  ) async {
-    final inspections = context.read<InspectionState>();
-    setState(() => _busyStoreId = storeId);
-    try {
-      await prepare();
-      if (context.mounted) {
-        await Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const InspectionScreen()));
-        // Refresh so the store shows Resume/Start according to what happened.
-        inspections.loadHistory().ignore();
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not $verb inspection: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busyStoreId = null);
-    }
-  }
-}
-
-class HistoryView extends StatelessWidget {
-  const HistoryView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    return RefreshIndicator(
-      onRefresh: () => inspections.refreshAll(
-          includeDashboard: context.read<AuthState>().isAdmin),
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-        itemCount: inspections.history.length,
-        itemBuilder: (context, index) {
-          final item = inspections.history[index] as Map<String, dynamic>;
-          final store = item['store'] as Map<String, dynamic>;
-          return _ContentCard(
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: _StatusIcon(
-                icon: Icons.assignment_turned_in,
-                color: Theme.of(context).colorScheme.secondary,
-              ),
-              title: Text(store['name'] as String,
-                  style: Theme.of(context).textTheme.titleMedium),
-              subtitle:
-                  Text('${item['status']} - score ${item['score'] ?? '-'}'),
-              trailing: _Pill(label: item['grade']?.toString() ?? 'Open'),
-              onTap: () async {
-                try {
-                  final inspector = item['inspector'] as Map<String, dynamic>?;
-                  final resumable =
-                      InspectionState.openStatuses.contains(item['status']) &&
-                          inspector?['id'] == context.read<AuthState>().userId;
-                  if (resumable) {
-                    await inspections.resumeInspection(item['id'] as int);
-                    if (context.mounted) {
-                      await Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const InspectionScreen()));
-                      inspections.loadHistory().ignore();
-                    }
-                    return;
-                  }
-                  final detail =
-                      await inspections.loadInspectionDetail(item['id'] as int);
-                  if (context.mounted) {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            InspectionResultScreen(inspection: detail)));
-                  }
-                } catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text('Could not open inspection: $error')),
-                    );
-                  }
-                }
-              },
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class DashboardView extends StatelessWidget {
-  const DashboardView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final dashboard = context.watch<InspectionState>().dashboard;
-    if (dashboard == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final storeRows = (dashboard['store_ranking'] ??
-        dashboard['stores'] ??
-        const []) as List<dynamic>;
-    final attentionRows =
-        (dashboard['attention_required'] ?? const []) as List<dynamic>;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-      children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _MetricCard(
-              label: 'Average score',
-              value:
-                  '${dashboard['average_inspection_score'] ?? dashboard['average_score'] ?? '-'}',
-              icon: Icons.speed,
-            ),
-            _MetricCard(
-              label: 'Submitted',
-              value: '${dashboard['submitted_inspections'] ?? 0}',
-              icon: Icons.assignment_turned_in,
-            ),
-            _MetricCard(
-              label: 'Open actions',
-              value: '${dashboard['open_corrective_actions'] ?? 0}',
-              icon: Icons.task_alt,
-            ),
-            _MetricCard(
-              label: 'Critical',
-              value: '${dashboard['critical_corrective_actions'] ?? 0}',
-              icon: Icons.priority_high,
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        if (attentionRows.isNotEmpty) ...[
-          Text('Attention required',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          for (final raw in attentionRows)
-            _DashboardStoreTile(row: raw as Map<String, dynamic>),
-          const SizedBox(height: 16),
-        ],
-        Text('Store ranking', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        for (final raw in storeRows)
-          _DashboardStoreTile(row: raw as Map<String, dynamic>),
-      ],
-    );
-  }
-}
-
-class _DashboardStoreTile extends StatelessWidget {
-  const _DashboardStoreTile({required this.row});
-
-  final Map<String, dynamic> row;
-
-  @override
-  Widget build(BuildContext context) {
-    final store = row['store'] as Map<String, dynamic>;
-    final latestScore = row['latest_score'];
-    final averageScore = row['average_score'];
-    final submittedCount = row['submitted_inspections'] ?? 0;
-    final openIssues = row['open_issues'] ?? 0;
-    return _ContentCard(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text(store['name'] as String),
-        subtitle: Text(
-            'Latest ${latestScore ?? '-'} / Avg ${averageScore ?? '-'} across $submittedCount submitted - $openIssues open actions'),
-        trailing: _Pill(label: '$openIssues open'),
+      child: CircleAvatar(
+        radius: 18,
+        backgroundColor: AppColors.primarySoft,
+        child: Text(initials(name),
+            style: theme.textTheme.labelLarge
+                ?.copyWith(color: AppColors.primaryDark)),
       ),
     );
   }
@@ -561,113 +214,30 @@ class _ConnectionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = toneColors(Tone.danger);
     return Material(
-      color: scheme.errorContainer,
+      color: colors.background,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+        padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
         child: Row(
           children: [
-            Icon(Icons.cloud_off, color: scheme.onErrorContainer),
+            Icon(Icons.cloud_off_outlined, size: 20, color: colors.foreground),
             const SizedBox(width: 12),
             Expanded(
               child: Text(message,
-                  style: TextStyle(color: scheme.onErrorContainer)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: colors.foreground)),
             ),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
+            TextButton(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(foregroundColor: colors.foreground),
+              child: const Text('Retry'),
+            ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ContentCard extends StatelessWidget {
-  const _ContentCard({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 180,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _StatusIcon(
-                  icon: icon, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(height: 12),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text(label, style: Theme.of(context).textTheme.bodyMedium),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusIcon extends StatelessWidget {
-  const _StatusIcon({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(icon, color: color),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(label, style: Theme.of(context).textTheme.labelMedium),
     );
   }
 }

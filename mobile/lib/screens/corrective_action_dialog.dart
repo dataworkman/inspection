@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../inspections/inspection_state.dart';
+import '../utils/format.dart';
 
 class NewCorrectiveAction {
   const NewCorrectiveAction({
@@ -143,6 +144,3 @@ class _CorrectiveActionDialogState extends State<_CorrectiveActionDialog> {
     ));
   }
 }
-
-String formatDate(DateTime date) =>
-    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';

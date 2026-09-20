@@ -119,6 +119,10 @@ class InspectionState extends ChangeNotifier {
   /// Why the last refresh of the lists failed (null when it worked).
   String? loadError;
 
+  /// True once the lists have been refreshed at least once (so an empty list
+  /// means "nothing there", not "still loading").
+  bool listsLoaded = false;
+
   /// Unfinished inspections saved on this device (for resuming offline).
   List<Map<String, dynamic>> localDrafts = [];
 
@@ -152,6 +156,7 @@ class InspectionState extends ChangeNotifier {
     saveErrorWillRetry = false;
     loadError = null;
     localDrafts = [];
+    listsLoaded = false;
     stores = [];
     templates = [];
     history = [];
@@ -196,6 +201,19 @@ class InspectionState extends ChangeNotifier {
       }
       final inspector = inspection['inspector'] as Map<String, dynamic>?;
       if (inspector != null && inspector['id'] == userId) return inspection;
+    }
+    return null;
+  }
+
+  /// The most recent finished inspection of a store (the history is newest
+  /// first), if any.
+  Map<String, dynamic>? latestSubmittedFor(int storeId) {
+    for (final item in history) {
+      final inspection = item as Map<String, dynamic>;
+      if (inspection['status'] == 'submitted' &&
+          (inspection['store'] as Map<String, dynamic>)['id'] == storeId) {
+        return inspection;
+      }
     }
     return null;
   }
@@ -584,6 +602,7 @@ class InspectionState extends ChangeNotifier {
     loadError = error == null
         ? null
         : (error is ApiException ? error.message : error.toString());
+    listsLoaded = true;
     await loadLocalDrafts();
   }
 

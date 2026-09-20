@@ -63,14 +63,16 @@ void main() {
       ),
     );
 
+    Finder metric(String label, String value) => find.descendant(
+        of: find.byKey(ValueKey('metric-$label')), matching: find.text(value));
     expect(find.text('Average score'), findsOneWidget);
-    expect(find.text('82.5'), findsOneWidget);
+    expect(metric('Average score', '82.5'), findsOneWidget);
     expect(find.text('Submitted'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    expect(metric('Submitted', '3'), findsOneWidget);
     expect(find.text('Open actions'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
-    expect(find.text('Critical'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    expect(metric('Open actions', '2'), findsOneWidget);
+    expect(find.text('Critical'), findsWidgets);
+    expect(metric('Critical', '1'), findsOneWidget);
     expect(find.text('Airport Bakery'), findsOneWidget);
     expect(find.text('Downtown Bakery'), findsOneWidget);
   });
@@ -136,6 +138,9 @@ void main() {
           'not_applicable': false,
           'photos': [],
         };
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final state = InspectionState(RecordingApiClient(), NoDraftStorage());
     Future<void> pumpTile(Map<String, dynamic> data) => tester.pumpWidget(
           ChangeNotifierProvider.value(
@@ -155,19 +160,28 @@ void main() {
           ),
         );
 
+    final handle = tester.ensureSemantics();
+    bool selected(int value) => isSemantics(isSelected: true).matches(
+        tester.getSemantics(find.byKey(ValueKey('rating-$value'))), {});
+
     await pumpTile(response(0));
-    expect(find.text('-'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect([for (var v = 1; v <= 5; v++) selected(v)], everyElement(isFalse),
+        reason: 'nothing is pre-selected for an unanswered item');
 
     await pumpTile(response(4));
     await tester.pump();
-    expect(find.text('4'), findsOneWidget);
+    expect([for (var v = 1; v <= 5; v++) selected(v)],
+        [false, false, false, true, false]);
+    handle.dispose();
   });
 
   group('response tile saving', () {
     late RecordingApiClient api;
 
     Future<void> pumpTile(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       api = RecordingApiClient();
       final state = InspectionState(api, NoDraftStorage())
         ..activeInspection = {'id': 7, 'responses': []};
@@ -200,20 +214,34 @@ void main() {
     testWidgets('marking an item N/A saves it right away', (tester) async {
       await pumpTile(tester);
 
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(find.text('N/A'));
       await tester.pump();
 
       final saves = api.patchBodies('/inspection_responses/1');
       expect(saves, hasLength(1));
       expect(saves.single['response']['not_applicable'], isTrue);
+      expect(saves.single['response']['score'], 4,
+          reason: 'the score is kept when marking N/A');
       expect(saves.single['response'].containsKey('passed'), isFalse,
           reason: 'the result is computed from the score, not sent');
     });
 
-    testWidgets('there is no Pass switch any more', (tester) async {
+    testWidgets('choosing a score saves it right away', (tester) async {
+      await pumpTile(tester);
+
+      await tester.tap(find.byKey(const ValueKey('rating-5')));
+      await tester.pump();
+
+      final saves = api.patchBodies('/inspection_responses/1');
+      expect(saves, hasLength(1));
+      expect(saves.single['response']['score'], 5);
+    });
+
+    testWidgets('there is no Pass switch or slider any more', (tester) async {
       await pumpTile(tester);
 
       expect(find.byType(Switch), findsNothing);
+      expect(find.byType(Slider), findsNothing);
       expect(find.text('Pass'), findsNothing);
     });
 
@@ -255,6 +283,9 @@ void main() {
     late RecordingApiClient api;
 
     Future<void> pumpInspection(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       api = RecordingApiClient();
       final inspection = {
         'id': 7,
@@ -333,6 +364,9 @@ void main() {
     late InspectionState state;
 
     Future<void> pumpTile(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       api = RecordingApiClient();
       state = InspectionState(api, NoDraftStorage())
         ..activeInspection = {'id': 7, 'responses': []};
@@ -367,9 +401,11 @@ void main() {
       expect(find.text('New corrective action'), findsOneWidget);
     }
 
-    IconButton actionButton(WidgetTester tester) =>
-        tester.widget<IconButton>(find.descendant(
-            of: find.byType(Badge), matching: find.byType(IconButton)));
+    OutlinedButton actionButton(WidgetTester tester) =>
+        tester.widget<OutlinedButton>(find.descendant(
+            of: find.byType(Badge),
+            // OutlinedButton.icon builds a subclass, which byType would miss.
+            matching: find.byWidgetPredicate((w) => w is OutlinedButton)));
 
     testWidgets('creates an action with the chosen details', (tester) async {
       await pumpTile(tester);
@@ -493,8 +529,11 @@ void main() {
       );
     }
 
+    // A status the user can pick is a row of the "Set status" list (the sheet
+    // also shows the current status as a label, so plain text is ambiguous).
     Finder inSheet(String text) => find.descendant(
-        of: find.byType(BottomSheet), matching: find.text(text));
+        of: find.byType(BottomSheet),
+        matching: find.widgetWithText(ListTile, text));
 
     testWidgets('an inspector can set any status', (tester) async {
       await pumpActions(tester, 'inspector');
@@ -502,7 +541,11 @@ void main() {
       await tester.tap(find.text('Repair display case seal'));
       await tester.pumpAndSettle();
 
-      expect(inSheet('Seal is damaged.'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(BottomSheet),
+              matching: find.text('Seal is damaged.')),
+          findsOneWidget);
       for (final status in ['Open', 'In Progress', 'Resolved', 'Verified']) {
         expect(inSheet(status), findsOneWidget, reason: status);
       }
@@ -560,6 +603,13 @@ void main() {
   });
 
   group('logging out', () {
+    Future<void> logOut(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Account'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log out'));
+      await tester.pumpAndSettle();
+    }
+
     late RecordingApiClient api;
     late InspectionState state;
     late AuthState auth;
@@ -591,8 +641,7 @@ void main() {
         (tester) async {
       await pumpHome(tester);
 
-      await tester.tap(find.byTooltip('Log out'));
-      await tester.pumpAndSettle();
+      await logOut(tester);
 
       expect(find.text('Unsent changes'), findsNothing);
       expect(api.requests, contains('DELETE /auth/logout'));
@@ -603,8 +652,7 @@ void main() {
       await pumpHome(tester);
       state.scheduleCommentSave('last words');
 
-      await tester.tap(find.byTooltip('Log out'));
-      await tester.pumpAndSettle();
+      await logOut(tester);
 
       expect(api.patchBodies('/inspections/7'), hasLength(1));
       expect(api.requests.indexOf('PATCH /inspections/7'),
@@ -618,8 +666,7 @@ void main() {
       api.failPatchesWith = ApiException('Cannot reach the server', 0);
       state.scheduleCommentSave('unsent');
 
-      await tester.tap(find.byTooltip('Log out'));
-      await tester.pumpAndSettle();
+      await logOut(tester);
       expect(find.text('Unsent changes'), findsOneWidget);
 
       await tester.tap(find.text('Cancel'));
@@ -637,8 +684,7 @@ void main() {
       api.failPatchesWith = ApiException('Cannot reach the server', 0);
       state.scheduleCommentSave('unsent');
 
-      await tester.tap(find.byTooltip('Log out'));
-      await tester.pumpAndSettle();
+      await logOut(tester);
       await tester.tap(find.text('Log out anyway'));
       await tester.pumpAndSettle();
 
@@ -800,10 +846,12 @@ void main() {
       );
       expect(find.text('4'), findsNWidgets(2));
 
-      // Change the first item to 1 (left end of its slider) and type a comment
-      // on the second while the connection is down.
-      final slider = find.byType(Slider).first;
-      await tester.tapAt(tester.getTopLeft(slider) + const Offset(30, 24));
+      // Change the first item to 1 and type a comment on the second while the
+      // connection is down.
+      await tester.tap(find.descendant(
+          of: find.byType(ResponseTile).first,
+          matching: find.byKey(const ValueKey('rating-1'))));
+      await tester.pump();
       await tester.enterText(
           find.widgetWithText(TextField, 'Comment').last, 'Sticky');
       await tester.pump(InspectionState.responseSaveDelay);
@@ -812,18 +860,23 @@ void main() {
       // The failed saves put a banner on screen ...
       expect(find.textContaining('Some changes are not saved'), findsOneWidget);
       // ... and the user's input is still what they entered, not reset.
-      expect(
-          find.descendant(
-              of: find.byType(ResponseTile).first, matching: find.text('1')),
-          findsOneWidget,
-          reason: 'the new score of the first item');
-      expect(find.text('4'), findsOneWidget, reason: 'the untouched item');
+      final handle = tester.ensureSemantics();
+      bool selected(int tile, int value) =>
+          isSemantics(isSelected: true).matches(
+              tester.getSemantics(find.descendant(
+                  of: find.byType(ResponseTile).at(tile),
+                  matching: find.byKey(ValueKey('rating-$value')))),
+              {});
+      expect(selected(0, 1), isTrue, reason: 'the new score of the first item');
+      expect(selected(0, 4), isFalse);
+      expect(selected(1, 4), isTrue, reason: 'the untouched item');
       expect(
           tester
               .widget<TextField>(find.widgetWithText(TextField, 'Sticky'))
               .controller!
               .text,
           'Sticky');
+      handle.dispose();
 
       state.reset(clearLocalData: false);
     });

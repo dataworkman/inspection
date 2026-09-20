@@ -59,6 +59,9 @@ void main() {
   late InspectionState state;
 
   Future<void> pump(WidgetTester tester, Widget body) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiProvider(
         providers: [

@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../annotations/annotation_state.dart';
+import '../theme/app_theme.dart';
 
 class AnnotationResult {
   const AnnotationResult({required this.payload, this.file});
@@ -106,13 +107,22 @@ class _AnnotationScreenState extends State<AnnotationScreen> {
     return ChangeNotifierProvider.value(
       value: _annotation,
       child: Scaffold(
+        // The photo is shown on a dark canvas so colors read true.
+        backgroundColor: const Color(0xff101512),
         appBar: AppBar(
           title: const Text('Annotate photo'),
           actions: [
-            IconButton(
-              onPressed: _finish,
-              icon: const Icon(Icons.check),
-              tooltip: 'Done',
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Tooltip(
+                message: 'Done',
+                child: FilledButton.icon(
+                  onPressed: _finish,
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  label: const Text('Done'),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+                ),
+              ),
             ),
           ],
         ),
@@ -326,7 +336,8 @@ class AnnotationToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final annotation = context.watch<AnnotationState>();
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: AppColors.surface,
+      shape: const Border(bottom: BorderSide(color: AppColors.borderSoft)),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
