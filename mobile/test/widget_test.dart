@@ -860,7 +860,8 @@ void main() {
     ));
 
     expect(find.text('Pass'), findsOneWidget);
-    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Needs work'), findsOneWidget);
+    expect(find.text('Review'), findsNothing);
     expect(find.text('N/A'), findsWidgets);
   });
 }

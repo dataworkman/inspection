@@ -432,8 +432,8 @@ class _ResultRow extends StatelessWidget {
     final scored = response['not_applicable'] != true &&
         ((response['score'] as num?) ?? 0) > 0;
     final color = switch (result) {
-      'Pass' => theme.colorScheme.primary,
-      'Review' => theme.colorScheme.tertiary,
+      _passLabel => theme.colorScheme.primary,
+      _needsWorkLabel => theme.colorScheme.tertiary,
       _ => theme.colorScheme.outline,
     };
 
@@ -546,6 +546,10 @@ class _InspectionHeader extends StatelessWidget {
   }
 }
 
+/// Result labels of a finished item (see InspectionResponse#passed on the server).
+const _passLabel = 'Pass';
+const _needsWorkLabel = 'Needs work';
+
 /// 'in_progress' -> 'In progress'.
 String _statusLabel(Object? status) {
   final text = (status ?? '').toString().replaceAll('_', ' ');
@@ -656,8 +660,8 @@ class InspectionResultScreen extends StatelessWidget {
   String _responseResult(Map<String, dynamic> response) {
     if (response['not_applicable'] == true) return 'N/A';
     return switch (response['passed']) {
-      true => 'Pass',
-      false => 'Review',
+      true => _passLabel,
+      false => _needsWorkLabel,
       _ => '-',
     };
   }
