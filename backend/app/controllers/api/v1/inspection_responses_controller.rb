@@ -1,19 +1,29 @@
 module Api
   module V1
     class InspectionResponsesController < BaseController
+      before_action :require_inspector!
       before_action :set_inspection
 
       def create
-        return unless ensure_draft!(@inspection)
+        return unless ensure_editable!(@inspection)
 
-        response = @inspection.inspection_responses.find_or_initialize_by(inspection_question_id: response_params[:inspection_question_id])
-        response.assign_attributes(response_params)
-        response.save!
+        attempts = 0
+        begin
+          response = InspectionResponse.find_or_initialize_by(inspection_id: @inspection.id, inspection_question_id: response_params[:inspection_question_id])
+          response.assign_attributes(response_params)
+          response.save!
+        rescue ActiveRecord::RecordNotUnique
+          # A concurrent request created the row between our lookup and insert;
+          # look it up again and update it.
+          attempts += 1
+          retry if attempts < 2
+          raise
+        end
         render json: { response: response.as_api_json }, status: :created
       end
 
       def update
-        return unless ensure_draft!(@inspection)
+        return unless ensure_editable!(@inspection)
 
         response = @inspection.inspection_responses.find(params[:id])
         response.update!(response_params.except(:inspection_question_id))
@@ -23,23 +33,15 @@ module Api
       private
 
       def set_inspection
-        scope = current_user.admin? ? Inspection.all : current_user.inspections
         if params[:inspection_id]
-          @inspection = scope.find(params[:inspection_id])
+          @inspection = visible_inspections.find(params[:inspection_id])
         else
-          @inspection = scope.joins(:inspection_responses).find_by!(inspection_responses: { id: params[:id] })
+          @inspection = visible_inspections.joins(:inspection_responses).find_by!(inspection_responses: { id: params[:id] })
         end
       end
 
       def response_params
-        params.require(:response).permit(:inspection_question_id, :score, :not_applicable, :passed, :comment)
-      end
-
-      def ensure_draft!(inspection)
-        return true if inspection.draft? || inspection.status == "in_progress" || inspection.status == "completed"
-
-        render json: { error: "submitted inspections cannot be changed" }, status: :conflict
-        false
+        params.require(:response).permit(:inspection_question_id, :score, :not_applicable, :comment)
       end
     end
   end

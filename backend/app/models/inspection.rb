@@ -1,7 +1,8 @@
 class Inspection < ApplicationRecord
   STATUSES = %w[draft in_progress completed submitted].freeze
+  EDITABLE_STATUSES = %w[draft in_progress completed].freeze
 
-  belongs_to :organization, optional: true
+  belongs_to :organization
   belongs_to :store
   belongs_to :user
   belongs_to :inspector, class_name: "User", optional: true
@@ -11,9 +12,11 @@ class Inspection < ApplicationRecord
   has_many :corrective_actions, dependent: :destroy
 
   validates :status, inclusion: { in: STATUSES }
+  validate :parts_belong_to_the_same_organization
 
   scope :recent, -> { order(created_at: :desc) }
   scope :submitted, -> { where(status: "submitted") }
+  scope :latest_submitted, -> { order(submitted_at: :desc, id: :desc) }
   scope :with_ordered_detail, -> {
     includes(
       :store,
@@ -28,15 +31,58 @@ class Inspection < ApplicationRecord
     status == "draft"
   end
 
+  def editable?
+    EDITABLE_STATUSES.include?(status)
+  end
+
   def recalculate_score!
-    responses = inspection_responses.includes(inspection_question: :inspection_category).reject(&:not_applicable?)
-    possible = responses.sum { |response| response.possible_weighted_score }
-    actual = responses.sum { |response| response.weighted_score }
-    calculated = possible.positive? ? ((actual / possible) * 100).round(2) : 0
+    calculated = calculate_total_score
     update!(score: calculated, total_score: calculated)
   end
 
+  # Category weights are shares of the total: each category is scored as a
+  # percentage of its own possible points, then averaged by category weight.
+  # Categories with nothing scored (all N/A or unanswered) drop out.
+  def calculate_total_score
+    scored = inspection_responses.includes(inspection_question: :inspection_category).select(&:scored?)
+
+    weighted_percentages = 0.0
+    total_weight = 0.0
+    scored.group_by { |response| response.inspection_question.inspection_category }.each do |category, responses|
+      possible = responses.sum(&:possible_weighted_score)
+      next unless possible.positive?
+
+      weighted_percentages += category.weight.to_f * (responses.sum(&:weighted_score) / possible)
+      total_weight += category.weight.to_f
+    end
+
+    total_weight.positive? ? (weighted_percentages / total_weight * 100).round(2) : 0
+  end
+
+  # Requirements defined on the template's questions, enforced at submission.
+  # N/A items are exempt.
+  def submission_problems
+    responses = inspection_responses.includes(:inspection_question, :inspection_photos).to_a
+    required = responses.select { |response| response.inspection_question.present? && !response.not_applicable? }
+
+    problems = []
+    unanswered = responses.select { |response| response.inspection_question&.required? && !response.answered? }
+    missing_photo = required.select { |response| response.inspection_question.photo_required? && response.inspection_photos.empty? }
+    missing_comment = required.select { |response| response.inspection_question.comment_required? && response.comment.blank? }
+
+    problems << "Answer required items: #{summarize_titles(unanswered)}" if unanswered.any?
+    problems << "Photo required for: #{summarize_titles(missing_photo)}" if missing_photo.any?
+    problems << "Comment required for: #{summarize_titles(missing_comment)}" if missing_comment.any?
+    problems
+  end
+
   def submit!(final_comment: nil)
+    problems = submission_problems
+    if problems.any?
+      problems.each { |problem| errors.add(:base, problem) }
+      raise ActiveRecord::RecordInvalid, self
+    end
+
     transaction do
       recalculate_score!
       update!(
@@ -68,6 +114,8 @@ class Inspection < ApplicationRecord
 
   def grade
     return nil if total_score.blank?
+    # Nothing scored yet: an unstarted inspection is not "Critical".
+    return nil if total_score.zero? && status != "submitted"
     return "Excellent" if total_score >= 90
     return "Good" if total_score >= 80
     return "Needs Improvement" if total_score >= 70
@@ -89,5 +137,29 @@ class Inspection < ApplicationRecord
           response.id || Float::INFINITY
         ]
       end
+  end
+
+  private
+
+  # A bug elsewhere must not be able to tie an inspection to another
+  # organization's store, template or people.
+  def parts_belong_to_the_same_organization
+    {
+      store: store,
+      inspection_template: inspection_template,
+      user: user,
+      inspector: inspector
+    }.each do |name, record|
+      next if record.nil? || organization_id.nil? || record.organization_id == organization_id
+
+      errors.add(name, "must belong to the same organization")
+    end
+  end
+
+
+  def summarize_titles(responses, limit: 5)
+    titles = responses.map { |response| response.inspection_question.title }
+    shown = titles.first(limit).join(", ")
+    titles.size > limit ? "#{shown} and #{titles.size - limit} more" : shown
   end
 end

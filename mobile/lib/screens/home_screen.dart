@@ -3,7 +3,27 @@ import 'package:provider/provider.dart';
 
 import '../auth/auth_state.dart';
 import '../inspections/inspection_state.dart';
-import 'inspection_screen.dart';
+import '../theme/app_theme.dart';
+import '../utils/format.dart';
+import '../widgets/content_width.dart';
+import 'actions_view.dart';
+import 'dashboard_view.dart';
+import 'history_view.dart';
+import 'stores_view.dart';
+
+export 'actions_view.dart' show ActionsView;
+export 'dashboard_view.dart' show DashboardView;
+export 'history_view.dart' show HistoryView;
+export 'stores_view.dart' show StoreListView;
+
+class _TabSpec {
+  const _TabSpec(this.title, this.icon, this.selectedIcon, this.page);
+
+  final String title;
+  final IconData icon;
+  final IconData selectedIcon;
+  final Widget page;
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,398 +39,205 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final inspections = context.read<InspectionState>();
-      inspections.loadStores();
-      inspections.loadTemplates();
-      inspections.loadHistory();
-      inspections.loadActions();
-      if (context.read<AuthState>().isAdmin) inspections.loadDashboard();
+      context
+          .read<InspectionState>()
+          .refreshAll(includeDashboard: context.read<AuthState>().isAdmin);
     });
+  }
+
+  Future<void> _logout() async {
+    final inspections = context.read<InspectionState>();
+    final auth = context.read<AuthState>();
+    if (inspections.hasPendingSaves) {
+      // Try to send what is still waiting; only ask when that does not work.
+      try {
+        await inspections
+            .flushPendingSaves()
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {}
+      if (inspections.hasPendingSaves) {
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Unsent changes'),
+            content: const Text(
+                'Some of your changes could not be sent and will be lost if you log out.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Log out anyway'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+    }
+    await auth.logout();
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
-    final pages = [
-      const StoreListView(),
-      const HistoryView(),
-      const ActionsView(),
-      if (auth.isAdmin) const DashboardView(),
+    final inspections = context.watch<InspectionState>();
+    final tabs = [
+      const _TabSpec('Stores', Icons.storefront_outlined, Icons.storefront,
+          StoreListView()),
+      const _TabSpec(
+          'History', Icons.history_outlined, Icons.history, HistoryView()),
+      const _TabSpec(
+          'Actions', Icons.task_alt_outlined, Icons.task_alt, ActionsView()),
+      if (auth.isAdmin)
+        const _TabSpec('Dashboard', Icons.dashboard_outlined, Icons.dashboard,
+            DashboardView()),
     ];
+    final current = tabs[_tab.clamp(0, tabs.length - 1)];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Store Inspections'),
+        title: Text(current.title),
         actions: [
-          IconButton(
-              onPressed: auth.logout,
-              icon: const Icon(Icons.logout),
-              tooltip: 'Log out')
+          _AccountMenu(user: auth.user, onLogout: _logout),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
-      body: pages[_tab],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: [
-          const NavigationDestination(
-              icon: Icon(Icons.storefront), label: 'Stores'),
-          const NavigationDestination(
-              icon: Icon(Icons.history), label: 'History'),
-          const NavigationDestination(
-              icon: Icon(Icons.task_alt), label: 'Actions'),
-          if (auth.isAdmin)
-            const NavigationDestination(
-                icon: Icon(Icons.dashboard), label: 'Dashboard'),
+      body: Column(
+        children: [
+          if (inspections.loadError != null)
+            _ConnectionBanner(
+              message: inspections.loadError!,
+              onRetry: () =>
+                  inspections.refreshAll(includeDashboard: auth.isAdmin),
+            ),
+          Expanded(child: ContentWidth(child: current.page)),
         ],
       ),
-    );
-  }
-}
-
-class ActionsView extends StatelessWidget {
-  const ActionsView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    return RefreshIndicator(
-      onRefresh: inspections.loadActions,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-        itemCount: inspections.actions.length,
-        itemBuilder: (context, index) {
-          final action = inspections.actions[index] as Map<String, dynamic>;
-          final store = action['store'] as Map<String, dynamic>;
-          return _ContentCard(
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: _StatusIcon(
-                icon: Icons.report_problem,
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              title: Text(action['title'] as String,
-                  style: Theme.of(context).textTheme.titleMedium),
-              subtitle: Text(
-                  '${store['name']} - ${action['severity']} - ${action['status']}'),
-              trailing: _Pill(label: action['status'].toString()),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class StoreListView extends StatefulWidget {
-  const StoreListView({super.key});
-
-  @override
-  State<StoreListView> createState() => _StoreListViewState();
-}
-
-class _StoreListViewState extends State<StoreListView> {
-  int? _startingStoreId;
-
-  @override
-  Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-      itemCount: inspections.stores.length,
-      itemBuilder: (context, index) {
-        final store = inspections.stores[index] as Map<String, dynamic>;
-        final template = inspections.templates.isEmpty
-            ? null
-            : inspections.templates.first as Map<String, dynamic>;
-        final storeId = store['id'] as int;
-        final starting = _startingStoreId == storeId;
-        return _ContentCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: _StatusIcon(
-              icon: Icons.storefront,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text(store['name'] as String,
-                style: Theme.of(context).textTheme.titleMedium),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text('${store['store_code']} - ${store['address']}'),
-            ),
-            trailing: starting
-                ? const SizedBox.square(
-                    dimension: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : FilledButton.icon(
-                    onPressed: template == null || _startingStoreId != null
-                        ? null
-                        : () => _startInspection(
-                              context,
-                              inspections,
-                              storeId,
-                              template['id'] as int,
-                            ),
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start'),
-                  ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _startInspection(
-    BuildContext context,
-    InspectionState inspections,
-    int storeId,
-    int templateId,
-  ) async {
-    setState(() => _startingStoreId = storeId);
-    try {
-      await inspections.startInspection(storeId, templateId);
-      if (context.mounted) {
-        await Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const InspectionScreen()));
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start inspection: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _startingStoreId = null);
-    }
-  }
-}
-
-class HistoryView extends StatelessWidget {
-  const HistoryView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final inspections = context.watch<InspectionState>();
-    return RefreshIndicator(
-      onRefresh: inspections.loadHistory,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-        itemCount: inspections.history.length,
-        itemBuilder: (context, index) {
-          final item = inspections.history[index] as Map<String, dynamic>;
-          final store = item['store'] as Map<String, dynamic>;
-          return _ContentCard(
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: _StatusIcon(
-                icon: Icons.assignment_turned_in,
-                color: Theme.of(context).colorScheme.secondary,
-              ),
-              title: Text(store['name'] as String,
-                  style: Theme.of(context).textTheme.titleMedium),
-              subtitle:
-                  Text('${item['status']} - score ${item['score'] ?? '-'}'),
-              trailing: _Pill(label: item['grade']?.toString() ?? 'Open'),
-              onTap: () async {
-                try {
-                  final detail =
-                      await inspections.loadInspectionDetail(item['id'] as int);
-                  if (context.mounted) {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            InspectionResultScreen(inspection: detail)));
-                  }
-                } catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text('Could not open inspection: $error')),
-                    );
-                  }
-                }
-              },
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class DashboardView extends StatelessWidget {
-  const DashboardView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final dashboard = context.watch<InspectionState>().dashboard;
-    if (dashboard == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final storeRows = (dashboard['store_ranking'] ??
-        dashboard['stores'] ??
-        const []) as List<dynamic>;
-    final attentionRows =
-        (dashboard['attention_required'] ?? const []) as List<dynamic>;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-      children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _MetricCard(
-              label: 'Average score',
-              value:
-                  '${dashboard['average_inspection_score'] ?? dashboard['average_score'] ?? '-'}',
-              icon: Icons.speed,
-            ),
-            _MetricCard(
-              label: 'Submitted',
-              value: '${dashboard['submitted_inspections'] ?? 0}',
-              icon: Icons.assignment_turned_in,
-            ),
-            _MetricCard(
-              label: 'Open actions',
-              value: '${dashboard['open_corrective_actions'] ?? 0}',
-              icon: Icons.task_alt,
-            ),
-            _MetricCard(
-              label: 'Critical',
-              value: '${dashboard['critical_corrective_actions'] ?? 0}',
-              icon: Icons.priority_high,
-            ),
-          ],
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.borderSoft)),
         ),
-        const SizedBox(height: 20),
-        if (attentionRows.isNotEmpty) ...[
-          Text('Attention required',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          for (final raw in attentionRows)
-            _DashboardStoreTile(row: raw as Map<String, dynamic>),
-          const SizedBox(height: 16),
-        ],
-        Text('Store ranking', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        for (final raw in storeRows)
-          _DashboardStoreTile(row: raw as Map<String, dynamic>),
-      ],
-    );
-  }
-}
-
-class _DashboardStoreTile extends StatelessWidget {
-  const _DashboardStoreTile({required this.row});
-
-  final Map<String, dynamic> row;
-
-  @override
-  Widget build(BuildContext context) {
-    final store = row['store'] as Map<String, dynamic>;
-    final latestScore = row['latest_score'];
-    final averageScore = row['average_score'];
-    final submittedCount = row['submitted_inspections'] ?? 0;
-    final openIssues = row['open_issues'] ?? 0;
-    return _ContentCard(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text(store['name'] as String),
-        subtitle: Text(
-            'Latest ${latestScore ?? '-'} / Avg ${averageScore ?? '-'} across $submittedCount submitted - $openIssues open actions'),
-        trailing: _Pill(label: '$openIssues open'),
+        // Tabs stay as wide as the content on big screens instead of spreading
+        // to the window edges.
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: NavigationBar(
+              selectedIndex: _tab.clamp(0, tabs.length - 1),
+              onDestinationSelected: (index) => setState(() => _tab = index),
+              destinations: [
+                for (final tab in tabs)
+                  NavigationDestination(
+                    icon: Icon(tab.icon),
+                    selectedIcon: Icon(tab.selectedIcon),
+                    label: tab.title,
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _ContentCard extends StatelessWidget {
-  const _ContentCard({required this.child});
+/// The signed-in user: initials in the app bar, details and Log out in a menu.
+class _AccountMenu extends StatelessWidget {
+  const _AccountMenu({required this.user, required this.onLogout});
 
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
+  final Map<String, dynamic>? user;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 180,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+    final theme = Theme.of(context);
+    final name = user?['name']?.toString();
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      offset: const Offset(0, 48),
+      onSelected: (value) {
+        if (value == 'logout') onLogout();
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _StatusIcon(
-                  icon: icon, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(height: 12),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text(label, style: Theme.of(context).textTheme.bodyMedium),
+              Text(name ?? 'Signed in', style: theme.textTheme.titleSmall),
+              if (user?['email'] != null)
+                Text(user!['email'].toString(),
+                    style: theme.textTheme.bodySmall),
+              if (roleLabel(user?['role'] as String?).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(roleLabel(user?['role'] as String?),
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: AppColors.primary)),
+                ),
             ],
           ),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 20),
+              SizedBox(width: 12),
+              Text('Log out'),
+            ],
+          ),
+        ),
+      ],
+      child: CircleAvatar(
+        radius: 18,
+        backgroundColor: AppColors.primarySoft,
+        child: Text(initials(name),
+            style: theme.textTheme.labelLarge
+                ?.copyWith(color: AppColors.primaryDark)),
       ),
     );
   }
 }
 
-class _StatusIcon extends StatelessWidget {
-  const _StatusIcon({required this.icon, required this.color});
+class _ConnectionBanner extends StatelessWidget {
+  const _ConnectionBanner({required this.message, required this.onRetry});
 
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(icon, color: color),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label});
-
-  final String label;
+  final String message;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
+    final colors = toneColors(Tone.danger);
+    return Material(
+      color: colors.background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off_outlined, size: 20, color: colors.foreground),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(message,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: colors.foreground)),
+            ),
+            TextButton(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(foregroundColor: colors.foreground),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
-      child: Text(label, style: Theme.of(context).textTheme.labelMedium),
     );
   }
 }

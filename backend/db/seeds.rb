@@ -1,3 +1,11 @@
+# Demo data: an organization, three stores, a template and accounts with the
+# well-known password "password123". It must never end up in production, so it
+# is skipped there unless explicitly requested (e.g. for a staging demo).
+if Rails.env.production? && ENV["SEED_DEMO_DATA"] != "1"
+  puts "Skipping demo seed data in production (set SEED_DEMO_DATA=1 to force it)."
+  return
+end
+
 organization = Organization.find_or_create_by!(name: "Demo Bakery Group")
 
 admin = User.find_or_create_by!(email: "admin@bakery-inspection.test") do |user|
@@ -14,13 +22,6 @@ inspector = User.find_or_create_by!(email: "inspector@bakery-inspection.test") d
   user.password = "password123"
 end
 
-manager = User.find_or_create_by!(email: "manager@bakery-inspection.test") do |user|
-  user.organization = organization
-  user.name = "Downtown Manager"
-  user.role = "store_manager"
-  user.password = "password123"
-end
-
 [
   [ "Downtown Bakery", "DT-BKY", "101 Main Street", "555-0101" ],
   [ "Midtown Bakery", "MT-BKY", "22 Center Avenue", "555-0102" ],
@@ -33,6 +34,18 @@ end
     store.active = true
   end
 end
+
+downtown = organization.stores.find_by!(store_code: "DT-BKY")
+
+manager = User.find_or_create_by!(email: "manager@bakery-inspection.test") do |user|
+  user.organization = organization
+  user.name = "Downtown Manager"
+  user.role = "store_manager"
+  user.store = downtown
+  user.password = "password123"
+end
+# Managers created before stores were tied to users get their store now.
+manager.update!(store: downtown) if manager.store.nil?
 
 template = organization.inspection_templates.find_or_create_by!(name: "Bakery Standard Inspection") do |inspection_template|
   inspection_template.description = "Bakery Standard Inspection v1"

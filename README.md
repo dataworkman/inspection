@@ -7,7 +7,8 @@ Fresh modular monolith MVP for franchise HQ inspection management. The repositor
 - Ruby 3.4+
 - Bundler
 - SQLite
-- Flutter stable channel
+- libvips (image variants; required to boot the app in production, e.g. `apt-get install libvips`)
+- Flutter stable channel (3.44+ for the bundled Android Gradle setup: AGP 9, Gradle 9.1, JDK 17)
 - Xcode or Android Studio for iOS/Android simulators
 
 ## Rails Setup
@@ -47,7 +48,7 @@ Seed command:
 bin/rails db:seed
 ```
 
-Seed data creates Demo Bakery Group, three stores, Bakery Standard Inspection v1, four weighted categories, 20 questions, and demo users.
+Seed data creates Demo Bakery Group, three stores, Bakery Standard Inspection v1, four weighted categories, 20 questions, and demo users. The seeds are skipped in production (they contain known passwords) unless `SEED_DEMO_DATA=1` is set.
 
 ## Backend Run Command
 
@@ -56,30 +57,91 @@ cd backend
 bin/rails server -b 0.0.0.0 -p 3002
 ```
 
-Tailscale URL on this machine:
-
-```text
-http://100.107.174.72:3002
-```
+The mobile app finds the API through `--dart-define=API_BASE_URL=...` (see below). Use the address your device can reach: `http://localhost:3002` for web/iOS simulator, `http://10.0.2.2:3002` for the Android emulator, or your machine's LAN/VPN IP for a physical device.
 
 ## Flutter Run Command
 
 ```bash
 cd mobile
-flutter run --dart-define=API_BASE_URL=http://100.107.174.72:3002
+flutter run --dart-define=API_BASE_URL=http://<host>:3002
 ```
 
 With mise:
 
 ```bash
-mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://100.107.174.72:3002
+mise exec flutter@latest -- flutter run --dart-define=API_BASE_URL=http://<host>:3002
 ```
+
+`API_BASE_URL` defaults to `http://localhost:3002`. Plain HTTP works in debug/profile builds only; Android release builds block cleartext traffic, so point release builds at an HTTPS URL. The login form is prefilled with the demo inspector account in debug builds only.
+
+## Configuration
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `API_BASE_URL` | Flutter `--dart-define` | Backend address. Defaults to `http://localhost:3002`; use HTTPS for release builds. |
+| `API_TOKEN_TTL_DAYS` | backend | Lifetime of a login session (default 30). |
+| `CORS_ORIGINS` | backend | Comma-separated browser origins allowed to call the API. Unset means *any* origin in development/test and *none* in production (native apps are not affected). |
+| `SEED_DEMO_DATA` | backend | Set to `1` to allow `db:seed` to create the demo data in production. |
+| `PHOTO_MAX_MB` | backend | Largest accepted photo (default 15). Uploads must be real JPEG, PNG, GIF, WebP or HEIC images; the file contents are checked, not just the name. |
+| `PHOTO_URL_TTL_MINUTES` | backend | How long the signed photo links in API responses stay valid (default 60). Every response carries fresh links. |
+| `SQLITE_DIR` | backend | Directory of the production SQLite files (default `storage`); put it on a persistent volume. |
 
 ## Demo Login Accounts
 
 - HQ Admin: `admin@bakery-inspection.test` / `password123`
 - Inspector: `inspector@bakery-inspection.test` / `password123`
 - Store Manager: `manager@bakery-inspection.test` / `password123`
+
+## Roles
+
+| Role | Can do |
+| --- | --- |
+| `admin` | Everything inside their organization: stores, templates, dashboard, all inspections, all corrective actions. |
+| `inspector` | Start and complete their own inspections (answers, photos, submit); create corrective actions on them and update actions on inspections they can see. |
+| `store_manager` | Works for one store (`users.store_id`, required for this role). Sees only that store, its finished inspections and history, and all of its corrective actions, and can move those to `In Progress` or `Resolved`. Cannot run inspections, mark actions `Verified` or open the dashboard. A manager with no store assigned sees nothing. |
+
+Admins assign a manager's store and (de)activate accounts with `GET /api/v1/users` and `PATCH /api/v1/users/:id` (`store_id`, `active` only; they cannot deactivate themselves or change roles or emails). Item results are computed: an item passes at 70% of its points or more.
+
+Every request is scoped to the caller's organization. Deactivated users and users without an organization are rejected. Submitted inspections are read-only (409).
+
+## Sessions
+
+A login returns a bearer token that expires after `API_TOKEN_TTL_DAYS`. Only a SHA-256 digest is stored, a user can be signed in on several devices at once (the newest 10 sessions are kept), and `DELETE /api/v1/auth/logout` revokes just the calling device's token. Login attempts are limited to 20 per 5 minutes per address and 8 per 15 minutes per account (HTTP 429 with `Retry-After`). Deactivated users are rejected immediately.
+
+## Inspection templates
+
+Templates are data. Editing the categories or questions of a template that inspections already use creates a new version (`version + 1`, a full copy with your edits) and deactivates the old one, so running and past inspections keep the questions, weights and max scores they were started with while new inspections use the new version. Templates nobody has used yet, and metadata-only changes (name, description, active), are edited in place.
+
+## Scoring
+
+Answers use a 1..`max_score` scale; `0` means "not answered". Each category is scored as a percentage of its own possible points (question weights apply inside the category), and the total is the category-weight average of those percentages, so category weights are shares of the total no matter how many questions a category has. N/A and unanswered items are left out. A score above a question's `max_score` is rejected. Submitting fails with 422 while a `required` question is unanswered or a `photo_required` / `comment_required` question lacks its photo or comment (N/A items are exempt).
+
+## Mobile app behavior
+
+- Answers, comments and the Pass toggle are saved as you go (typing is debounced). Anything that cannot be sent is kept in the device's local database, shown with a retry banner, retried automatically every 20 seconds, resent after the app is restarted, and flushed before an inspection is submitted.
+- Unfinished inspections can be resumed from the store list or History, and, without a connection, from "Saved on this device" on the Stores tab. Starting a new inspection, attaching photos and submitting need the server.
+- A session that is rejected by the server (expired or revoked) returns to the login screen; being offline never signs you out. Logging out revokes the token on the server, clears the previous user's data from the device, and warns first if edits could not be sent. Local data left by a different user is discarded at login.
+- Corrective actions are created from a checklist item (title, details, severity, due date) and their status is changed from the Actions tab, limited to what the user's role may set.
+
+## End-to-end test against a live backend
+
+`mobile/test/e2e/live_server_test.dart` drives the app's real client code (`ApiClient`, `AuthState`, `InspectionState`) against a running backend: login and session restore, lists, starting and answering an inspection, photo upload, corrective actions, submission and scoring, the admin dashboard, store manager permissions, logout/revocation, and offline behavior. It is skipped unless a server address is given:
+
+```bash
+cd backend && bin/rails db:seed && bin/rails server -p 3002
+cd mobile && E2E_BASE_URL=http://127.0.0.1:3002 flutter test test/e2e
+```
+
+It creates its own store, so it can be re-run; login is rate limited per account, so restart the server if you run it many times in a row.
+
+## Continuous Integration
+
+GitHub Actions workflows live in the repository root `.github/workflows/` (GitHub ignores nested ones):
+
+- `backend.yml`: Brakeman, bundler-audit, RuboCop, Rails tests, seed load, and a check that `backend/db/schema.rb` is exactly what the migrations produce.
+- `mobile.yml`: `flutter analyze` and `flutter test` on the pinned Flutter version.
+
+Whenever you add a migration, commit the regenerated `db/schema.rb` with it.
 
 ## Architecture Overview
 

@@ -6,10 +6,12 @@ class PhotoInputButton extends StatelessWidget {
     super.key,
     required this.onPhotoPicked,
     this.tooltip,
+    this.label,
   });
 
   final Future<void> Function(XFile file) onPhotoPicked;
   final String? tooltip;
+  final String? label;
 
   @override
   Widget build(BuildContext context) {

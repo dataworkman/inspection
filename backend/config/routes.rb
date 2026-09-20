@@ -4,7 +4,9 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       post "auth/login", to: "auth#create"
+      delete "auth/logout", to: "auth#destroy"
       get "me", to: "users#show"
+      resources :users, only: [ :index, :update ]
       get "dashboard", to: "dashboard#show"
 
       resources :stores, only: [ :index, :show ] do

@@ -1,7 +1,12 @@
 version: 2
 updates:
 - package-ecosystem: bundler
-  directory: "/"
+  directory: "/backend"
+  schedule:
+    interval: weekly
+  open-pull-requests-limit: 10
+- package-ecosystem: pub
+  directory: "/mobile"
   schedule:
     interval: weekly
   open-pull-requests-limit: 10

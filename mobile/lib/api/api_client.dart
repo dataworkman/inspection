@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -6,10 +7,21 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
 
 class ApiClient {
-  ApiClient({required this.baseUrl, this.token});
+  ApiClient({
+    required this.baseUrl,
+    this.token,
+    http.Client? client,
+    this.timeout = const Duration(seconds: 20),
+  }) : _client = client ?? http.Client();
 
   final String baseUrl;
+  final http.Client _client;
+  final Duration timeout;
   String? token;
+
+  /// Called when the server rejects the token (expired or revoked session).
+  /// Not called for failed logins, which are sent without a token.
+  void Function()? onUnauthorized;
 
   Uri _uri(String path) => Uri.parse('$baseUrl/api/v1$path');
 
@@ -19,23 +31,34 @@ class ApiClient {
         if (token != null) 'Authorization': 'Bearer $token',
       };
 
-  Future<Map<String, dynamic>> get(String path) async {
-    final response = await http.get(_uri(path), headers: _headers);
-    return _decode(response);
-  }
+  Future<Map<String, dynamic>> get(String path) =>
+      _request(() => _client.get(_uri(path), headers: _headers));
 
-  Future<Map<String, dynamic>> post(
-      String path, Map<String, dynamic> body) async {
-    final response =
-        await http.post(_uri(path), headers: _headers, body: jsonEncode(body));
-    return _decode(response);
-  }
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) =>
+      _request(() =>
+          _client.post(_uri(path), headers: _headers, body: jsonEncode(body)));
 
-  Future<Map<String, dynamic>> patch(
-      String path, Map<String, dynamic> body) async {
-    final response =
-        await http.patch(_uri(path), headers: _headers, body: jsonEncode(body));
-    return _decode(response);
+  Future<Map<String, dynamic>> patch(String path, Map<String, dynamic> body) =>
+      _request(() =>
+          _client.patch(_uri(path), headers: _headers, body: jsonEncode(body)));
+
+  Future<Map<String, dynamic>> delete(String path) =>
+      _request(() => _client.delete(_uri(path), headers: _headers));
+
+  /// Sends a request and turns every transport problem into an [ApiException]
+  /// with status 0, so callers can tell "no connection" from a server answer.
+  Future<Map<String, dynamic>> _request(
+      Future<http.Response> Function() send) async {
+    final sentToken = token != null;
+    final http.Response response;
+    try {
+      response = await send().timeout(timeout);
+    } on TimeoutException {
+      throw ApiException('The server took too long to respond', 0);
+    } catch (_) {
+      throw ApiException('Cannot reach the server', 0);
+    }
+    return _decode(response, sentToken: sentToken);
   }
 
   Future<Map<String, dynamic>> uploadPhoto({
@@ -79,17 +102,34 @@ class ApiClient {
       contentType: annotatedMediaType,
     ));
 
-    final response = await http.Response.fromStream(await request.send());
-    return _decode(response);
+    return _request(
+        () async => http.Response.fromStream(await _client.send(request)));
   }
 
-  Map<String, dynamic> _decode(http.Response response) {
-    final body = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+  Map<String, dynamic> _decode(http.Response response,
+      {required bool sentToken}) {
+    final status = response.statusCode;
+    final failed = status < 200 || status >= 300;
+    if (status == 401 && sentToken) onUnauthorized?.call();
+
+    Map<String, dynamic>? body;
+    if (response.body.isEmpty) {
+      body = <String, dynamic>{};
+    } else {
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) body = decoded;
+      } on FormatException {
+        // Not JSON (for example an HTML error page from a proxy).
+      }
+    }
+
+    if (failed) {
       throw ApiException(
-          body['error']?.toString() ?? 'Request failed', response.statusCode);
+          body?['error']?.toString() ?? 'Request failed ($status)', status);
+    }
+    if (body == null) {
+      throw ApiException('Unexpected response from the server', status);
     }
     return body;
   }
@@ -100,6 +140,9 @@ class ApiException implements Exception {
 
   final String message;
   final int statusCode;
+
+  /// True when the request never got an answer (offline, timeout, DNS...).
+  bool get isNetworkError => statusCode == 0;
 
   @override
   String toString() => message;

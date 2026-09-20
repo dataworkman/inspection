@@ -1,15 +1,20 @@
 class User < ApplicationRecord
   has_secure_password
 
-  belongs_to :organization, optional: true
+  belongs_to :organization
+  belongs_to :store, optional: true
   has_many :inspections, dependent: :restrict_with_exception
+  has_many :api_tokens, dependent: :delete_all
 
   before_validation :normalize_email
-  before_create :issue_api_token
 
   validates :name, presence: true
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :role, inclusion: { in: %w[admin inspector store_manager] }
+  # Only when a manager is created or their store/role changes, so an old
+  # account without a store can still be deactivated.
+  validate :store_manager_has_a_store, if: -> { new_record? || will_save_change_to_store_id? || will_save_change_to_role? }
+  validate :store_in_same_organization
 
   def admin?
     role == "admin"
@@ -24,11 +29,7 @@ class User < ApplicationRecord
   end
 
   def as_api_json
-    { id: id, organization_id: organization_id, name: name, email: email, role: role, active: active }
-  end
-
-  def rotate_api_token!
-    update!(api_token: SecureRandom.hex(32))
+    { id: id, organization_id: organization_id, store_id: store_id, name: name, email: email, role: role, active: active }
   end
 
   private
@@ -37,7 +38,13 @@ class User < ApplicationRecord
     self.email = email.to_s.strip.downcase
   end
 
-  def issue_api_token
-    self.api_token ||= SecureRandom.hex(32)
+  def store_manager_has_a_store
+    errors.add(:store, "must be set for a store manager") if store_manager? && store_id.nil?
+  end
+
+  def store_in_same_organization
+    return if store.nil? || store.organization_id == organization_id
+
+    errors.add(:store, "must belong to the same organization")
   end
 end
