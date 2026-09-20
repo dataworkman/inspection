@@ -119,7 +119,11 @@ void main() {
     expect(cleanlinessTop, lessThan(serviceTop));
     expect(find.text('Counters'), findsOneWidget);
     expect(find.text('Greeting'), findsOneWidget);
-    expect(find.text('Item'), findsNWidgets(2));
+    // Readable at phone width: a row per item, no horizontally scrolling table.
+    expect(find.byType(DataTable), findsNothing);
+    // Each score appears in its row and in the category summary.
+    expect(find.text('4/5'), findsNWidgets(2));
+    expect(find.text('5/5'), findsNWidgets(2));
   });
 
   testWidgets('response tile shows unanswered items as not scored',

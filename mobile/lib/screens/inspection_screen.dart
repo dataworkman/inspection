@@ -405,50 +405,92 @@ class _CategoryResultTable extends StatelessWidget {
                         : 'N/A'),
               ],
             ),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStatePropertyAll(
-                    Theme.of(context).colorScheme.surfaceContainerHighest),
-                columns: const [
-                  DataColumn(label: Text('Item')),
-                  DataColumn(label: Text('Score')),
-                  DataColumn(label: Text('Result')),
-                  DataColumn(label: Text('Comment')),
-                  DataColumn(label: Text('Photos')),
-                ],
-                rows: [
-                  for (final response in group.responses)
-                    DataRow(cells: [
-                      DataCell(SizedBox(
-                        width: 280,
-                        child: Text(
-                          response['title']?.toString() ?? '-',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )),
-                      DataCell(Text(
-                          '${response['score'] ?? 0}/${response['max_score'] ?? 5}')),
-                      DataCell(Text(responseResult(response))),
-                      DataCell(SizedBox(
-                        width: 260,
-                        child: Text(
-                          response['comment']?.toString().isNotEmpty == true
-                              ? response['comment'].toString()
-                              : '-',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )),
-                      DataCell(Text(
-                          '${(response['photos'] as List<dynamic>? ?? const []).length}')),
-                    ]),
-                ],
-              ),
-            ),
+            for (final response in group.responses) ...[
+              const Divider(height: 20),
+              _ResultRow(response: response, result: responseResult(response)),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// One checklist item of a finished inspection, readable at phone width:
+/// title and notes on the left, score and result on the right.
+class _ResultRow extends StatelessWidget {
+  const _ResultRow({required this.response, required this.result});
+
+  final Map<String, dynamic> response;
+  final String result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final comment = response['comment']?.toString() ?? '';
+    final photos = (response['photos'] as List<dynamic>? ?? const []).length;
+    final scored = response['not_applicable'] != true &&
+        ((response['score'] as num?) ?? 0) > 0;
+    final color = switch (result) {
+      'Pass' => theme.colorScheme.primary,
+      'Review' => theme.colorScheme.tertiary,
+      _ => theme.colorScheme.outline,
+    };
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(response['title']?.toString() ?? '-',
+                  style: theme.textTheme.bodyLarge),
+              if (comment.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(comment,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
+                ),
+              if (photos > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.photo_camera,
+                          size: 14, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 4),
+                      Text('$photos',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(scored
+                ? '${response['score']}/${response['max_score'] ?? 5}'
+                : '-'),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(result,
+                  style: theme.textTheme.labelSmall?.copyWith(color: color)),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -524,7 +566,7 @@ class _InspectionMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 150,
+      width: 170,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -540,7 +582,7 @@ class _InspectionMetric extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(value,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                     style: Theme.of(context).textTheme.titleMedium),
                 Text(label, style: Theme.of(context).textTheme.labelMedium),
               ],
